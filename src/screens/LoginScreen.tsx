@@ -9,13 +9,17 @@ import {
   Text,
   View,
 } from 'react-native';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
 
 import {CustomButton, CustomCheckbox, CustomInput} from '../components';
 import {COLORS, FONTS} from '../constants';
+import {RootStackParamList} from '../navigation/types';
 
 const LOGO = require('../../assets/logo.png');
 
-export function LoginScreen() {
+type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
+
+export function LoginScreen({navigation}: LoginScreenProps) {
   const [phone, setPhone] = useState('');
   const [keepSignedIn, setKeepSignedIn] = useState(true);
 
@@ -34,7 +38,9 @@ export function LoginScreen() {
     if (!isValidPhone) {
       return;
     }
-    console.log('Send OTP clicked');
+    navigation.navigate('OtpVerification', {
+      phoneNumber: phone,
+    });
   };
 
   const legalText = useMemo(
