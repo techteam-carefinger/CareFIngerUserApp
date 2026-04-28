@@ -3,4 +3,8 @@ export type RootStackParamList = {
   OtpVerification: {
     phoneNumber: string;
   };
+  ProfileSetup: {
+    phoneNumber: string;
+  };
+  Home: undefined;
 };
