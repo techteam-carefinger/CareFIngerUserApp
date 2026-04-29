@@ -18,24 +18,28 @@ type CustomInputProps = {
   keyboardType?: KeyboardTypeOptions;
   maxLength?: number;
   error?: string;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 };
 
 export function CustomInput({
   value,
   onChangeText,
   placeholder,
-  prefix = '+91',
+  prefix,
   leftIcon,
-  keyboardType = 'number-pad',
-  maxLength = 10,
+  keyboardType = 'default',
+  maxLength,
   error,
+  autoCapitalize = 'none',
 }: CustomInputProps) {
+  const hasPrefix = Boolean(prefix);
+
   return (
     <View>
       <View style={[styles.inputWrapper, error ? styles.errorBorder : undefined]}>
-        <Text style={styles.prefix}>{prefix}</Text>
-        <View style={styles.divider} />
-        <View style={styles.leftIcon}>{leftIcon}</View>
+        {hasPrefix ? <Text style={styles.prefix}>{prefix}</Text> : null}
+        {hasPrefix ? <View style={styles.divider} /> : null}
+        {leftIcon ? <View style={styles.leftIcon}>{leftIcon}</View> : null}
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -44,6 +48,7 @@ export function CustomInput({
           style={styles.input}
           keyboardType={keyboardType}
           maxLength={maxLength}
+          autoCapitalize={autoCapitalize}
         />
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -88,8 +93,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontFamily: FONTS.regular,
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 20,
     color: COLORS.textPrimary,
     paddingVertical: 0,
     includeFontPadding: false,

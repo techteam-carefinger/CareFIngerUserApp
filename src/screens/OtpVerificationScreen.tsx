@@ -68,7 +68,20 @@ export function OtpVerificationScreen({
     if (!isOtpValid) {
       return;
     }
+
+    // This would come from your OTP verification API response.
+    const verificationResponse = {
+      isNewUser: true,
+    };
+
     console.log('OTP Verified', phoneNumber);
+    const {isNewUser} = verificationResponse;
+
+    if (isNewUser) {
+      navigation.replace('ProfileSetup', {phoneNumber});
+    } else {
+      navigation.replace('Home');
+    }
   };
 
   const onResend = () => {
