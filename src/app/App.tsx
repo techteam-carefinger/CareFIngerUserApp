@@ -6,6 +6,8 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 
 import {LoginScreen} from '../screens/LoginScreen';
 import {HomeScreen} from '../screens/HomeScreen';
+import {LocationSearchScreen} from '../screens/LocationSearchScreen';
+import {MapPickerScreen} from '../screens/MapPickerScreen';
 import {OtpVerificationScreen} from '../screens/OtpVerificationScreen';
 import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
 import {RootStackParamList} from '../navigation/types';
@@ -22,6 +24,8 @@ function App() {
           <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
           <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="LocationSearch" component={LocationSearchScreen} />
+          <Stack.Screen name="MapPicker" component={MapPickerScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

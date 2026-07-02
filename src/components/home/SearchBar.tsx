@@ -1,26 +1,39 @@
 import React from 'react';
-import {StyleSheet, TextInput, View} from 'react-native';
+import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 
 import {FONTS} from '../../constants';
 
 type SearchBarProps = {
   placeholder?: string;
+  onFocus?: () => void;
+  onPress?: () => void;
 };
 
-export function SearchBar({placeholder = 'Where are you going?'}: SearchBarProps) {
+export function SearchBar({placeholder = 'Where are you going?', onFocus, onPress}: SearchBarProps) {
+  const inputNode = onPress ? (
+    <Pressable style={styles.pressableInput} onPress={onPress}>
+      <Text style={styles.placeholderText} allowFontScaling={false}>
+        {placeholder}
+      </Text>
+    </Pressable>
+  ) : (
+    <TextInput
+      placeholder={placeholder}
+      placeholderTextColor="#4B5563"
+      style={styles.searchInput}
+      allowFontScaling={false}
+      onFocus={onFocus}
+    />
+  );
+
   return (
     <View style={styles.searchWrap}>
       <View style={styles.iconContainer}>
         <Ionicons name="search-outline" size={22} color="#111827" />
       </View>
       <View style={styles.inputContainer}>
-        <TextInput
-          placeholder={placeholder}
-          placeholderTextColor="#4B5563"
-          style={styles.searchInput}
-          allowFontScaling={false}
-        />
+        {inputNode}
       </View>
     </View>
   );
@@ -58,5 +71,15 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
+  },
+  pressableInput: {
+    height: '100%',
+    justifyContent: 'center',
+  },
+  placeholderText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#4B5563',
   },
 });

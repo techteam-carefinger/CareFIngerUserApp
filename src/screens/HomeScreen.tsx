@@ -10,11 +10,14 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 
 import {BottomTab} from '../components/home/BottomTab';
 import {LocationItem} from '../components/home/LocationItem';
 import {SearchBar} from '../components/home/SearchBar';
 import {ShareCard} from '../components/home/ShareCard';
+import {RootStackParamList} from '../navigation/types';
 
 type Location = {
   icon: 'home-outline' | 'time-outline';
@@ -86,6 +89,7 @@ const BANNERS: Banner[] = [
 ];
 
 export function HomeScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const {width} = useWindowDimensions();
   const bannerWidth = width - 32;
@@ -103,7 +107,7 @@ export function HomeScreen() {
         <ScrollView
           contentContainerStyle={[styles.contentContainer, {paddingTop: Math.max(insets.top, 8)}]}
           showsVerticalScrollIndicator={false}>
-          <SearchBar />
+          <SearchBar onPress={() => navigation.navigate('LocationSearch')} />
 
           <View style={styles.card}>
             {LOCATIONS.map((location, index) => (
