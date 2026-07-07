@@ -1,10 +1,12 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   FlatList,
   Image,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  PermissionsAndroid,
+  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -96,10 +98,43 @@ export function HomeScreen() {
   const bannerWidth = width - 32;
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
 
+  useEffect(() => {
+    void requestLocationPermission();
+  }, []);
+
   const handleBannerScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = event.nativeEvent.contentOffset.x;
     const index = Math.round(x / bannerWidth);
     setActiveBannerIndex(index);
+  };
+
+  const requestLocationPermission = async () => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      const alreadyGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      );
+      if (alreadyGranted) {
+        return;
+      }
+
+      await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission',
+          message:
+            'CareFinger needs your location to show nearby services and set your address.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny',
+          buttonNeutral: 'Ask Me Later',
+        },
+      );
+    } catch {
+      // no-op: unable to request location permission
+    }
   };
 
   const handleShare = useCallback(async () => {
