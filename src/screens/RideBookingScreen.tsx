@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,7 +15,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import MapView, {Marker, Polyline, PROVIDER_GOOGLE, Region} from 'react-native-maps';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
-import {FONTS} from '../constants';
+import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {CaretakerMarker} from '../types';
 
@@ -39,6 +40,8 @@ type RideOption = {
 };
 
 const formatPrice = (price: number) => (price === 0 ? 'Free' : `₹${price}`);
+
+const PAID_OPTION_IDS = new Set(['min-care-service', 'min-care-premium']);
 
 const decodePolyline = (encoded: string): LatLng[] => {
   const points: LatLng[] = [];
@@ -136,6 +139,7 @@ export function RideBookingScreen({navigation, route}: Props) {
   const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
   const [isRouteLoading, setIsRouteLoading] = useState(true);
   const [selectedOptionId, setSelectedOptionId] = useState('caretaker-free');
+  const [rechargeOption, setRechargeOption] = useState<RideOption | null>(null);
 
   const caretakerBikes = useMemo(
     () => generateCaretakerBikes(pickup),
@@ -236,6 +240,41 @@ export function RideBookingScreen({navigation, route}: Props) {
     </View>
   );
 
+  const handleOptionPress = (option: RideOption) => {
+    if (PAID_OPTION_IDS.has(option.id)) {
+      setRechargeOption(option);
+      return;
+    }
+    setSelectedOptionId(option.id);
+  };
+
+  const handleBookPress = () => {
+    if (PAID_OPTION_IDS.has(selectedOptionId)) {
+      setRechargeOption(selectedOption);
+      return;
+    }
+
+    navigation.navigate('PickupConfirm', {
+      pickup,
+      drop,
+      serviceTitle: selectedOption.title,
+    });
+  };
+
+  const closeRechargeModal = () => setRechargeOption(null);
+
+  const goToRecharge = () => {
+    if (!rechargeOption) {
+      return;
+    }
+    const option = rechargeOption;
+    setRechargeOption(null);
+    navigation.navigate('Recharge', {
+      planTitle: option.title,
+      amount: option.price,
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.screen}>
@@ -334,7 +373,7 @@ export function RideBookingScreen({navigation, route}: Props) {
                 <Pressable
                   key={option.id}
                   style={[styles.optionCard, isSelected && styles.optionCardSelected]}
-                  onPress={() => setSelectedOptionId(option.id)}>
+                  onPress={() => handleOptionPress(option)}>
                   <View style={styles.optionLeft}>
                     {renderRideIcon()}
                     <View style={styles.optionTextWrap}>
@@ -373,13 +412,44 @@ export function RideBookingScreen({navigation, route}: Props) {
             })}
           </ScrollView>
 
-          <Pressable style={styles.bookButton}>
+          <Pressable style={styles.bookButton} onPress={handleBookPress}>
             <Text style={styles.bookButtonText} allowFontScaling={false}>
               Book {selectedOption.title}
             </Text>
           </Pressable>
         </View>
       </View>
+
+      <Modal
+        visible={rechargeOption != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRechargeModal}>
+        <Pressable style={styles.modalOverlay} onPress={closeRechargeModal}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="wallet-outline" size={32} color="#0E7490" />
+            </View>
+            <Text style={styles.modalTitle} allowFontScaling={false}>
+              Recharge to proceed
+            </Text>
+            <Text style={styles.modalMessage} allowFontScaling={false}>
+              Please recharge ₹{rechargeOption?.price ?? 0} to book{' '}
+              {rechargeOption?.title ?? 'this care service'}.
+            </Text>
+            <Pressable style={styles.modalRechargeButton} onPress={goToRecharge}>
+              <Text style={styles.modalRechargeText} allowFontScaling={false}>
+                Recharge Now
+              </Text>
+            </Pressable>
+            <Pressable style={styles.modalCancelButton} onPress={closeRechargeModal}>
+              <Text style={styles.modalCancelText} allowFontScaling={false}>
+                Cancel
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -607,7 +677,7 @@ const styles = StyleSheet.create({
   },
   bookButton: {
     marginTop: 10,
-    backgroundColor: '#FACC15',
+    backgroundColor: COLORS.primary,
     borderRadius: 10,
     height: 54,
     alignItems: 'center',
@@ -616,6 +686,65 @@ const styles = StyleSheet.create({
   bookButtonText: {
     fontFamily: FONTS.bold,
     fontSize: 18,
+    color: COLORS.white,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  modalIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#ECFEFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 20,
     color: '#111827',
+    textAlign: 'center',
+  },
+  modalMessage: {
+    marginTop: 10,
+    fontFamily: FONTS.regular,
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalRechargeButton: {
+    marginTop: 24,
+    width: '100%',
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalRechargeText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  modalCancelButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  modalCancelText: {
+    fontFamily: FONTS.medium,
+    fontSize: 15,
+    color: '#6B7280',
   },
 });

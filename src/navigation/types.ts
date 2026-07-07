@@ -33,6 +33,23 @@ export type RootStackParamList = {
       longitude: number;
     };
   };
+  Recharge: {
+    planTitle: string;
+    amount: number;
+  };
+  PickupConfirm: {
+    pickup: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    drop: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    serviceTitle: string;
+  };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;
 };

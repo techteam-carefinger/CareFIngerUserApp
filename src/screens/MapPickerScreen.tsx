@@ -15,7 +15,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import MapView, {PROVIDER_GOOGLE, Region} from 'react-native-maps';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
-import {FONTS} from '../constants';
+import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {storage} from '../services';
 
@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     marginTop: 12,
-    backgroundColor: THEME,
+    backgroundColor: COLORS.primary,
     borderRadius: 8,
     height: 56,
     alignItems: 'center',

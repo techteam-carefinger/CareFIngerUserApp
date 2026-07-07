@@ -301,7 +301,46 @@ export function HomeScreen() {
   };
 
   const openRecentPlace = useCallback(
-    (place: SavedRecentPlace) => {
+    async (place: SavedRecentPlace) => {
+      if (place.latitude == null || place.longitude == null) {
+        navigation.navigate('LocationSearch', {
+          pickedLocation: place.address,
+          pickedTarget: 'destination',
+          pickedLatitude: place.latitude,
+          pickedLongitude: place.longitude,
+        });
+        return;
+      }
+
+      const pickupFromMap = coords
+        ? {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            address: address || undefined,
+          }
+        : null;
+      const pickupFromStorage = pickupFromMap ? null : await storage.getLocation();
+      const pickup = pickupFromMap ?? pickupFromStorage;
+
+      if (pickup) {
+        navigation.navigate('RideBooking', {
+          pickup: {
+            address:
+              pickup.address ||
+              address ||
+              `${pickup.latitude.toFixed(6)}, ${pickup.longitude.toFixed(6)}`,
+            latitude: pickup.latitude,
+            longitude: pickup.longitude,
+          },
+          drop: {
+            address: place.address,
+            latitude: place.latitude,
+            longitude: place.longitude,
+          },
+        });
+        return;
+      }
+
       navigation.navigate('LocationSearch', {
         pickedLocation: place.address,
         pickedTarget: 'destination',
@@ -309,7 +348,7 @@ export function HomeScreen() {
         pickedLongitude: place.longitude,
       });
     },
-    [navigation],
+    [navigation, coords, address],
   );
 
   const handleShare = useCallback(async () => {

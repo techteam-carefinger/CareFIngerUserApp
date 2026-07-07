@@ -226,12 +226,19 @@ export function LocationSearchScreen({navigation, route}: Props) {
           scrollInputToStart(pickupInputRef);
           return fullAddress;
         });
+
+        if (destinationCoordsRef.current) {
+          navigateToBooking(
+            destinationCoordsRef.current,
+            destinationFullRef.current.trim() || destination.trim(),
+          );
+        }
       })();
 
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [destination, navigateToBooking]),
   );
 
   useEffect(() => {
@@ -532,7 +539,9 @@ export function LocationSearchScreen({navigation, route}: Props) {
         const coords = {latitude: pickedLatitude, longitude: pickedLongitude};
         destinationCoordsRef.current = coords;
         setDestinationCoords(coords);
-        navigateToBooking(coords, pickedLocation);
+        if (pickupCoordsRef.current) {
+          navigateToBooking(coords, pickedLocation);
+        }
       }
       void saveRecentDrop({
         address: pickedLocation,
