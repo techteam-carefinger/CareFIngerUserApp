@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,6 +13,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 
 import {CustomButton, OTPInput} from '../components';
 import {COLORS, FONTS} from '../constants';
+import {useOtpAutoRead} from '../hooks';
 import {RootStackParamList} from '../navigation/types';
 import {authService} from '../services';
 
@@ -41,6 +42,59 @@ export function OtpVerificationScreen({
   const [countdown, setCountdown] = useState(INITIAL_TIMER_SECONDS);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const hasAutoVerifiedRef = useRef(false);
+
+  const completeLogin = useCallback(
+    async (idToken: string) => {
+      const {isProfileComplete} = await authService.login(idToken);
+
+      if (isProfileComplete) {
+        navigation.replace('Home');
+      } else {
+        navigation.replace('ProfileSetup', {phoneNumber});
+      }
+    },
+    [navigation, phoneNumber],
+  );
+
+  const {restartListener} = useOtpAutoRead({
+    digits: OTP_LENGTH,
+    enabled: true,
+    onOtpDetected: (detectedOtp: string) => {
+      if (detectedOtp.length === OTP_LENGTH) {
+        setOtp(detectedOtp);
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (!authService.hasPendingOtp()) {
+      return;
+    }
+
+    const unsubscribe = authService.subscribeAutoVerification(async idToken => {
+      if (hasAutoVerifiedRef.current || isVerifying) {
+        return;
+      }
+
+      hasAutoVerifiedRef.current = true;
+      setIsVerifying(true);
+      try {
+        await completeLogin(idToken);
+      } catch (error) {
+        hasAutoVerifiedRef.current = false;
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Automatic verification failed. Please enter the OTP manually.';
+        Alert.alert('Verification failed', message);
+      } finally {
+        setIsVerifying(false);
+      }
+    });
+
+    return unsubscribe;
+  }, [completeLogin, isVerifying]);
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -68,22 +122,17 @@ export function OtpVerificationScreen({
     setOtp(nextOtp.replace(/\D/g, '').slice(0, OTP_LENGTH));
   };
 
-  const onVerify = async () => {
-    if (!isOtpValid || isVerifying) {
+  const onVerify = useCallback(async () => {
+    if (otp.length !== OTP_LENGTH || isVerifying) {
       return;
     }
 
     setIsVerifying(true);
     try {
       const idToken = await authService.confirmOtp(otp);
-      const {isProfileComplete} = await authService.login(idToken);
-
-      if (isProfileComplete) {
-        navigation.replace('Home');
-      } else {
-        navigation.replace('ProfileSetup', {phoneNumber});
-      }
+      await completeLogin(idToken);
     } catch (error) {
+      hasAutoVerifiedRef.current = false;
       const message =
         error instanceof Error
           ? error.message
@@ -92,7 +141,16 @@ export function OtpVerificationScreen({
     } finally {
       setIsVerifying(false);
     }
-  };
+  }, [completeLogin, isVerifying, otp]);
+
+  useEffect(() => {
+    if (otp.length !== OTP_LENGTH || isVerifying || hasAutoVerifiedRef.current) {
+      return;
+    }
+
+    hasAutoVerifiedRef.current = true;
+    void onVerify();
+  }, [isVerifying, onVerify, otp]);
 
   const onResend = async () => {
     if (!canResend || isResending) {
@@ -103,6 +161,8 @@ export function OtpVerificationScreen({
     try {
       await authService.sendOtp(phoneNumber);
       setOtp('');
+      hasAutoVerifiedRef.current = false;
+      restartListener();
       setCountdown(INITIAL_TIMER_SECONDS);
     } catch (error) {
       const message =
@@ -130,6 +190,15 @@ export function OtpVerificationScreen({
         <Text style={styles.title}>OTP Verification</Text>
         <Text style={styles.subtitle}>Please enter code we just send to</Text>
         <Text style={styles.phoneText}>{formattedPhone}</Text>
+        {Platform.OS === 'android' ? (
+          <Text style={styles.autoReadHint} allowFontScaling={false}>
+            OTP will be read automatically. Tap the code above the keyboard if prompted.
+          </Text>
+        ) : (
+          <Text style={styles.autoReadHint} allowFontScaling={false}>
+            Tap the OTP suggestion above the keyboard to autofill.
+          </Text>
+        )}
 
         <View style={styles.otpSection}>
           <OTPInput length={OTP_LENGTH} value={otp} onChange={handleOtpChange} />
@@ -202,6 +271,12 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: COLORS.textPrimary,
     fontFamily: FONTS.bold,
+  },
+  autoReadHint: {
+    marginTop: 8,
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    fontFamily: FONTS.regular,
   },
   otpSection: {
     marginTop: 38,

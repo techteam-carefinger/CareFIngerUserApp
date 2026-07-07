@@ -1,6 +1,8 @@
 import React, {useEffect, useMemo, useRef} from 'react';
 import {
   NativeSyntheticEvent,
+  Platform,
+  Pressable,
   StyleSheet,
   TextInput,
   TextInputKeyPressEventData,
@@ -16,6 +18,7 @@ type OTPInputProps = {
 };
 
 export function OTPInput({length = 4, value, onChange}: OTPInputProps) {
+  const hiddenInputRef = useRef<TextInput | null>(null);
   const inputRefs = useRef<
     Array<{focus: () => void; blur: () => void} | null>
   >([]);
@@ -26,8 +29,17 @@ export function OTPInput({length = 4, value, onChange}: OTPInputProps) {
   );
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      hiddenInputRef.current?.focus();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (value.length === length) {
       inputRefs.current[length - 1]?.blur();
+      hiddenInputRef.current?.blur();
     }
   }, [length, value.length]);
 
@@ -86,34 +98,68 @@ export function OTPInput({length = 4, value, onChange}: OTPInputProps) {
   };
 
   return (
-    <View style={styles.row}>
-      {chars.map((char, index) => (
-        <TextInput
-          key={`otp-${index}`}
-          ref={ref => {
-            inputRefs.current[index] =
-              ref as unknown as {focus: () => void; blur: () => void} | null;
-          }}
-          style={styles.input}
-          value={char.trim()}
-          onChangeText={(text: string) => handleTextChange(text, index)}
-          onKeyPress={(
-            event: NativeSyntheticEvent<TextInputKeyPressEventData>,
-          ) => handleKeyPress(event.nativeEvent.key, index)}
-          keyboardType="number-pad"
-          textContentType={index === 0 ? 'oneTimeCode' : 'none'}
-          returnKeyType="done"
-          maxLength={length}
-          autoCorrect={false}
-          autoCapitalize="none"
-          textAlign="center"
-        />
-      ))}
+    <View style={styles.wrap}>
+      <TextInput
+        ref={hiddenInputRef}
+        value={value}
+        onChangeText={(text: string) => {
+          onChange(text.replace(/\D/g, '').slice(0, length));
+        }}
+        style={styles.hiddenInput}
+        textContentType="oneTimeCode"
+        autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
+        keyboardType="number-pad"
+        importantForAutofill="yes"
+        autoCorrect={false}
+        autoCapitalize="none"
+        maxLength={length}
+        caretHidden
+      />
+
+      <Pressable style={styles.row} onPress={() => hiddenInputRef.current?.focus()}>
+        {chars.map((char, index) => (
+          <TextInput
+            key={`otp-${index}`}
+            ref={ref => {
+              inputRefs.current[index] =
+                ref as unknown as {focus: () => void; blur: () => void} | null;
+            }}
+            style={styles.input}
+            value={char.trim()}
+            onChangeText={(text: string) => handleTextChange(text, index)}
+            onKeyPress={(
+              event: NativeSyntheticEvent<TextInputKeyPressEventData>,
+            ) => handleKeyPress(event.nativeEvent.key, index)}
+            keyboardType="number-pad"
+            textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+            autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
+            returnKeyType="done"
+            maxLength={length}
+            autoCorrect={false}
+            autoCapitalize="none"
+            textAlign="center"
+            pointerEvents="none"
+          />
+        ))}
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: {
+    position: 'relative',
+  },
+  hiddenInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+    opacity: 0.02,
+    color: 'transparent',
+    zIndex: 2,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'center',

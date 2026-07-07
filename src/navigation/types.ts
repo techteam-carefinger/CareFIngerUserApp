@@ -7,6 +7,13 @@ export type RootStackParamList = {
     phoneNumber: string;
   };
   Home: undefined;
+  Profile: undefined;
+  ProfileDetails: undefined;
+  MyCareServices: undefined;
+  EditProfileField: {
+    field: 'name' | 'email' | 'emergency' | 'dateOfBirth';
+    initialValue?: string;
+  };
   LocationSearch:
     | {
         pickedLocation?: string;

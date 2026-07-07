@@ -8,7 +8,16 @@ import {LoginScreen} from '../screens/LoginScreen';
 import {HomeScreen} from '../screens/HomeScreen';
 import {LocationSearchScreen} from '../screens/LocationSearchScreen';
 import {MapPickerScreen} from '../screens/MapPickerScreen';
+import {RideBookingScreen} from '../screens/RideBookingScreen';
+import {RechargeScreen} from '../screens/RechargeScreen';
+import {PickupConfirmScreen} from '../screens/PickupConfirmScreen';
+import {BookingConfirmedScreen} from '../screens/BookingConfirmedScreen';
+import {SearchingCaretakerScreen} from '../screens/SearchingCaretakerScreen';
 import {OtpVerificationScreen} from '../screens/OtpVerificationScreen';
+import {EditProfileFieldScreen} from '../screens/EditProfileFieldScreen';
+import {MyCareServicesScreen} from '../screens/MyCareServicesScreen';
+import {ProfileDetailsScreen} from '../screens/ProfileDetailsScreen';
+import {ProfileScreen} from '../screens/ProfileScreen';
 import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
 import {
   PrivacyPolicyScreen,
@@ -30,8 +39,17 @@ function App() {
           <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
           <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="ProfileDetails" component={ProfileDetailsScreen} />
+          <Stack.Screen name="MyCareServices" component={MyCareServicesScreen} />
+          <Stack.Screen name="EditProfileField" component={EditProfileFieldScreen} />
           <Stack.Screen name="LocationSearch" component={LocationSearchScreen} />
           <Stack.Screen name="MapPicker" component={MapPickerScreen} />
+          <Stack.Screen name="RideBooking" component={RideBookingScreen} />
+          <Stack.Screen name="Recharge" component={RechargeScreen} />
+          <Stack.Screen name="PickupConfirm" component={PickupConfirmScreen} />
+          <Stack.Screen name="SearchingCaretaker" component={SearchingCaretakerScreen} />
+          <Stack.Screen name="BookingConfirmed" component={BookingConfirmedScreen} />
           <Stack.Screen
             name="TermsAndConditions"
             component={TermsAndConditionsScreen}

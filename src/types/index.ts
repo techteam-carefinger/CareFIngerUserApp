@@ -48,6 +48,8 @@ export interface LegalDocument {
 export interface LocalProfile {
   address?: string;
   emergencyContact?: string;
+  gender?: string;
+  dateOfBirth?: string;
 }
 
 /**
@@ -130,4 +132,23 @@ export interface ConfirmedBookingParams {
 export interface CancelBookingData {
   bookingId?: string;
   status?: string;
+}
+
+export interface BookingHistoryItem {
+  bookingId?: string;
+  _id?: string;
+  address?: string;
+  status?: string;
+  createdAt?: string;
+  bookingDate?: string;
+  date?: string;
+  amount?: number;
+  price?: number;
+  totalAmount?: number;
+  serviceType?: string;
+}
+
+export interface BookingHistoryData {
+  bookings: BookingHistoryItem[];
+  total: number;
 }

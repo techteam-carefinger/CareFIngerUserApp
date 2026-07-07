@@ -1,2 +1,1 @@
-// Shared hooks should be exported from here.
-export {};
+export {useOtpAutoRead} from './useOtpAutoRead';

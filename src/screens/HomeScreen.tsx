@@ -490,6 +490,11 @@ export function HomeScreen() {
               icon={tab.icon}
               label={tab.label}
               active={tab.label === 'Home'}
+              onPress={() => {
+                if (tab.label === 'Profile') {
+                  navigation.navigate('Profile');
+                }
+              }}
             />
           ))}
         </View>
