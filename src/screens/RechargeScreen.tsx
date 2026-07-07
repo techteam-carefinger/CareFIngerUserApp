@@ -37,7 +37,7 @@ export function RechargeScreen({navigation, route}: Props) {
             ₹{amount}
           </Text>
           <Text style={styles.description} allowFontScaling={false}>
-            Recharge your wallet to book this care service and proceed with your ride.
+            Recharge minutes to book care services and continue with your ride.
           </Text>
         </View>
 

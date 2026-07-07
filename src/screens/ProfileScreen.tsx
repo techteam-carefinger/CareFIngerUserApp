@@ -30,6 +30,7 @@ type MenuItem = {
 const MENU_ITEMS: MenuItem[] = [
   {id: 'help', icon: 'help-circle-outline', label: 'Help'},
   {id: 'rides', icon: 'time-outline', label: 'My Care Services'},
+  {id: 'recharge', icon: 'wallet-outline', label: 'Recharge', subtitle: 'Add minutes for services'},
   {id: 'safety', icon: 'shield-outline', label: 'Safety'},
   {id: 'refer', icon: 'gift-outline', label: 'Refer and Earn', subtitle: 'Get ₹50'},
   {id: 'notifications', icon: 'notifications-outline', label: 'Notifications'},
@@ -92,6 +93,14 @@ export function ProfileScreen() {
   const handleMenuPress = (itemId: string) => {
     if (itemId === 'rides') {
       navigation.navigate('MyCareServices');
+      return;
+    }
+
+    if (itemId === 'recharge') {
+      navigation.navigate('Recharge', {
+        planTitle: 'Minutes for Services',
+        amount: 49,
+      });
       return;
     }
 
