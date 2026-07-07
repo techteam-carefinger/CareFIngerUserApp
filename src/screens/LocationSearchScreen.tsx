@@ -6,6 +6,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 
 import {FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {storage} from '../services';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LocationSearch'>;
 type AutocompletePrediction = {
@@ -54,6 +55,32 @@ export function LocationSearchScreen({navigation, route}: Props) {
   const destinationFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCurrentFetchRef = useRef(false);
   const skipNextDestinationFetchRef = useRef(false);
+
+  // Prefill the pickup field with the location captured on the previous
+  // (home/map) screen, so the user only has to enter their drop location.
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const captured = await storage.getLocation();
+      if (cancelled || !captured) {
+        return;
+      }
+      if (!route.params?.pickedLocation) {
+        skipNextCurrentFetchRef.current = true;
+        setLocationSearch(
+          captured.address ||
+            `${captured.latitude.toFixed(6)}, ${captured.longitude.toFixed(6)}`,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount to seed the pickup from the captured location.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (skipNextCurrentFetchRef.current) {
@@ -233,34 +260,25 @@ export function LocationSearchScreen({navigation, route}: Props) {
 
         <View style={styles.mainCard}>
           <View style={styles.row}>
-            <View style={[styles.pinCircle, styles.currentPin]}>
-              <View style={styles.currentPinInner} />
-            </View>
-            <View style={styles.rowTextWrap}>
-              <Text style={styles.currentLabel} allowFontScaling={false}>
-                Your current location
-              </Text>
-              <TextInput
-                value={locationSearch}
-                onChangeText={setLocationSearch}
-                placeholder="Search location"
-                placeholderTextColor="#9CA3AF"
-                style={styles.currentLocationInput}
-                allowFontScaling={false}
-              />
-            </View>
+            <View style={[styles.pinRing, styles.pickupRing]} />
+            <TextInput
+              value={locationSearch}
+              onChangeText={setLocationSearch}
+              placeholder="Pickup location"
+              placeholderTextColor="#9CA3AF"
+              style={styles.input}
+              allowFontScaling={false}
+            />
           </View>
 
           <View style={styles.dottedLine} />
 
           <View style={styles.row}>
-            <View style={[styles.pinCircle, styles.destinationPin]}>
-              <View style={styles.destinationPinInner} />
-            </View>
+            <View style={[styles.pinRing, styles.dropRing]} />
             <TextInput
               value={destination}
               onChangeText={setDestination}
-              placeholder="Where are you going?"
+              placeholder="Drop location"
               placeholderTextColor="#9CA3AF"
               style={styles.input}
               allowFontScaling={false}
@@ -317,12 +335,6 @@ export function LocationSearchScreen({navigation, route}: Props) {
             <Ionicons name="location" size={16} color="#0E7490" />
             <Text style={styles.pillText} allowFontScaling={false}>
               Select from map
-            </Text>
-          </Pressable>
-          <Pressable style={styles.pillButton}>
-            <Ionicons name="add-circle-outline" size={16} color="#0E7490" />
-            <Text style={styles.pillText} allowFontScaling={false}>
-              Add stops
             </Text>
           </Pressable>
         </View>
@@ -414,59 +426,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  pinCircle: {
-    width: 24,
-    height: 24,
+  pinRing: {
+    width: 18,
+    height: 18,
     borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 4,
+    backgroundColor: '#FFFFFF',
     marginRight: 12,
   },
-  currentPin: {
-    backgroundColor: '#0E7490',
+  pickupRing: {
+    borderColor: '#1E9E5A',
   },
-  currentPinInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    backgroundColor: '#67E8F9',
-  },
-  destinationPin: {
-    backgroundColor: '#EA580C',
-  },
-  destinationPinInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#FED7AA',
-  },
-  rowTextWrap: {
-    flex: 1,
-    paddingVertical: 4,
-  },
-  currentLabel: {
-    fontFamily: FONTS.medium,
-    color: '#111827',
-    fontSize: 16,
-  },
-  currentLocationInput: {
-    height: 38,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    fontFamily: FONTS.regular,
-    color: '#111827',
-    fontSize: 14,
-    marginTop: 4,
-    paddingVertical: 0,
+  dropRing: {
+    borderColor: '#D9642A',
   },
   dottedLine: {
-    height: 30,
+    height: 24,
     borderLeftWidth: 2,
     borderStyle: 'dashed',
-    borderColor: '#67A6B5',
-    marginLeft: 11,
+    borderColor: '#B8C2CC',
+    marginLeft: 8,
     marginVertical: 4,
   },
   input: {
@@ -516,7 +495,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   pillButton: {
-    width: '48.5%',
+    width: '100%',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 999,

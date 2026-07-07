@@ -49,3 +49,14 @@ export interface LocalProfile {
   address?: string;
   emergencyContact?: string;
 }
+
+/**
+ * The user's captured device location. Persisted so the pickup point can be
+ * restored instantly on the next launch while a fresh fix is acquired.
+ */
+export interface CapturedLocation {
+  latitude: number;
+  longitude: number;
+  address?: string;
+  capturedAt: number;
+}

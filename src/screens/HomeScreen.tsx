@@ -1,5 +1,6 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Linking,
@@ -7,20 +8,27 @@ import {
   NativeSyntheticEvent,
   PermissionsAndroid,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
-import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import Ionicons from '@react-native-vector-icons/ionicons';
+import MapView, {PROVIDER_GOOGLE, Region} from 'react-native-maps';
 
 import {BottomTab} from '../components/home/BottomTab';
 import {LocationItem} from '../components/home/LocationItem';
 import {SearchBar} from '../components/home/SearchBar';
 import {ShareCard} from '../components/home/ShareCard';
+import {FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {storage} from '../services';
+import {CapturedLocation} from '../types';
 
 type Location = {
   icon: 'home-outline' | 'time-outline';
@@ -37,6 +45,21 @@ type Tab = {
 type Banner = {
   id: string;
   image: any;
+};
+
+type Coords = {
+  latitude: number;
+  longitude: number;
+};
+
+const GOOGLE_MAPS_API_KEY: string = 'AIzaSyBE3GNStuB23c1ZT8j9C2tfFuFFue4NY4U';
+const THEME = '#1F8A9E';
+
+const DEFAULT_REGION: Region = {
+  latitude: 23.2599,
+  longitude: 77.4126,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
 };
 
 const LOCATIONS: Location[] = [
@@ -92,17 +115,49 @@ const BANNERS: Banner[] = [
 ];
 
 export function HomeScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const insets = useSafeAreaInsets();
-  const {width} = useWindowDimensions();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const {width, height} = useWindowDimensions();
   const bannerWidth = width - 32;
+  const mapHeight = Math.round(height * 0.4);
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
 
+  const mapRef = useRef<MapView | null>(null);
+  const hasCenteredRef = useRef(false);
+  const lastUserCoordsRef = useRef<Coords | null>(null);
+  const geocodeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [hasLocationPermission, setHasLocationPermission] = useState(
+    Platform.OS === 'ios',
+  );
+  const [coords, setCoords] = useState<Coords | null>(null);
+  const [address, setAddress] = useState('');
+  const [isResolving, setIsResolving] = useState(false);
+
   useEffect(() => {
-    void requestLocationPermission();
+    void bootstrapLocation();
+    return () => {
+      if (geocodeDebounceRef.current) {
+        clearTimeout(geocodeDebounceRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleBannerScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const bootstrapLocation = async () => {
+    const cached = await storage.getLocation();
+    if (cached) {
+      setCoords({latitude: cached.latitude, longitude: cached.longitude});
+      if (cached.address) {
+        setAddress(cached.address);
+      }
+    }
+    await requestLocationPermission();
+  };
+
+  const handleBannerScrollEnd = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
     const x = event.nativeEvent.contentOffset.x;
     const index = Math.round(x / bannerWidth);
     setActiveBannerIndex(index);
@@ -110,6 +165,7 @@ export function HomeScreen() {
 
   const requestLocationPermission = async () => {
     if (Platform.OS !== 'android') {
+      setHasLocationPermission(true);
       return;
     }
 
@@ -118,23 +174,138 @@ export function HomeScreen() {
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       );
       if (alreadyGranted) {
+        setHasLocationPermission(true);
         return;
       }
 
-      await PermissionsAndroid.request(
+      const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
           title: 'Location Permission',
           message:
-            'CareFinger needs your location to show nearby services and set your address.',
+            'CareFinger needs your location to set your pickup point and show nearby services.',
           buttonPositive: 'Allow',
           buttonNegative: 'Deny',
           buttonNeutral: 'Ask Me Later',
         },
       );
+      setHasLocationPermission(result === PermissionsAndroid.RESULTS.GRANTED);
     } catch {
-      // no-op: unable to request location permission
+      setHasLocationPermission(false);
     }
+  };
+
+  const persistLocation = useCallback(
+    (next: Coords, resolvedAddress?: string) => {
+      const payload: CapturedLocation = {
+        latitude: next.latitude,
+        longitude: next.longitude,
+        address: resolvedAddress,
+        capturedAt: Date.now(),
+      };
+      void storage.setLocation(payload);
+    },
+    [],
+  );
+
+  const reverseGeocode = useCallback(
+    async (latitude: number, longitude: number) => {
+      const fallback = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      if (!GOOGLE_MAPS_API_KEY) {
+        setAddress(fallback);
+        persistLocation({latitude, longitude}, fallback);
+        return;
+      }
+
+      try {
+        setIsResolving(true);
+        const endpoint =
+          'https://maps.googleapis.com/maps/api/geocode/json' +
+          `?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`;
+        const response = await fetch(endpoint);
+        const data = (await response.json()) as {
+          status?: string;
+          results?: Array<{formatted_address?: string}>;
+        };
+
+        const resolved = data.results?.[0]?.formatted_address;
+        const finalAddress =
+          data.status === 'OK' && resolved ? resolved : fallback;
+        setAddress(finalAddress);
+        persistLocation({latitude, longitude}, finalAddress);
+      } catch {
+        setAddress(fallback);
+        persistLocation({latitude, longitude}, fallback);
+      } finally {
+        setIsResolving(false);
+      }
+    },
+    [persistLocation],
+  );
+
+  const handleUserLocationChange = useCallback(
+    (event: {nativeEvent: {coordinate?: Coords}}) => {
+      const coordinate = event.nativeEvent.coordinate;
+      if (!coordinate) {
+        return;
+      }
+
+      const userCoords: Coords = {
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+      };
+      lastUserCoordsRef.current = userCoords;
+
+      // Center on the user's real position only once; after that the pickup
+      // point follows the map center so the user can drag to adjust it.
+      if (!hasCenteredRef.current) {
+        hasCenteredRef.current = true;
+        mapRef.current?.animateToRegion(
+          {
+            ...userCoords,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          },
+          500,
+        );
+      }
+    },
+    [],
+  );
+
+  // Fires whenever the map settles (initial load, auto-center, or user drag).
+  // The pickup point is always the map center, so we capture + geocode it here.
+  const handleRegionChangeComplete = useCallback(
+    (region: Region) => {
+      const next: Coords = {
+        latitude: region.latitude,
+        longitude: region.longitude,
+      };
+      setCoords(next);
+
+      if (geocodeDebounceRef.current) {
+        clearTimeout(geocodeDebounceRef.current);
+      }
+      geocodeDebounceRef.current = setTimeout(() => {
+        void reverseGeocode(next.latitude, next.longitude);
+      }, 400);
+    },
+    [reverseGeocode],
+  );
+
+  const recenterOnUser = () => {
+    const target = lastUserCoordsRef.current;
+    if (!target) {
+      return;
+    }
+    mapRef.current?.animateToRegion(
+      {
+        ...target,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      },
+      400,
+    );
   };
 
   const handleShare = useCallback(async () => {
@@ -154,11 +325,70 @@ export function HomeScreen() {
     }
   }, []);
 
+  const addressText = isResolving
+    ? 'Fetching your location...'
+    : address || 'Locating your pickup point...';
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <View style={styles.screen}>
+        <View style={[styles.mapContainer, {height: mapHeight}]}>
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            initialRegion={
+              coords
+                ? {...coords, latitudeDelta: 0.01, longitudeDelta: 0.01}
+                : DEFAULT_REGION
+            }
+            mapType="standard"
+            loadingEnabled
+            showsUserLocation={hasLocationPermission}
+            showsMyLocationButton={false}
+            onUserLocationChange={handleUserLocationChange}
+            onRegionChangeComplete={handleRegionChangeComplete}
+          />
+
+          <View pointerEvents="none" style={styles.centerMarker}>
+            <View style={styles.pickupPill}>
+              <Text style={styles.pickupPillText} allowFontScaling={false}>
+                Pickup Point
+              </Text>
+            </View>
+            <Ionicons
+              name="location"
+              size={38}
+              color="#1E9E5A"
+              style={styles.centerPin}
+            />
+          </View>
+
+          <Pressable style={styles.recenterButton} onPress={recenterOnUser}>
+            <Ionicons name="locate" size={22} color={THEME} />
+          </Pressable>
+
+          <View style={styles.addressCard}>
+            <View style={styles.addressDot}>
+              <View style={styles.addressDotInner} />
+            </View>
+            <Text
+              style={styles.addressText}
+              allowFontScaling={false}
+              numberOfLines={1}>
+              {addressText}
+            </Text>
+            {isResolving ? (
+              <ActivityIndicator size="small" color={THEME} />
+            ) : (
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            )}
+          </View>
+        </View>
+
         <ScrollView
-          contentContainerStyle={[styles.contentContainer, {paddingTop: Math.max(insets.top, 8)}]}
+          style={styles.scroll}
+          contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}>
           <SearchBar onPress={() => navigation.navigate('LocationSearch')} />
 
@@ -185,7 +415,10 @@ export function HomeScreen() {
                 showsHorizontalScrollIndicator={false}
                 onMomentumScrollEnd={handleBannerScrollEnd}
                 renderItem={({item}) => (
-                  <Image source={item.image} style={[styles.bannerImage, {width: bannerWidth}]} />
+                  <Image
+                    source={item.image}
+                    style={[styles.bannerImage, {width: bannerWidth}]}
+                  />
                 )}
               />
             </View>
@@ -193,7 +426,10 @@ export function HomeScreen() {
               {BANNERS.map((banner, index) => (
                 <View
                   key={banner.id}
-                  style={[styles.dot, activeBannerIndex === index && styles.activeDot]}
+                  style={[
+                    styles.dot,
+                    activeBannerIndex === index && styles.activeDot,
+                  ]}
                 />
               ))}
             </View>
@@ -204,7 +440,12 @@ export function HomeScreen() {
 
         <View style={styles.bottomBar}>
           {TABS.map(tab => (
-            <BottomTab key={tab.label} icon={tab.icon} label={tab.label} active={tab.label === 'Home'} />
+            <BottomTab
+              key={tab.label}
+              icon={tab.icon}
+              label={tab.label}
+              active={tab.label === 'Home'}
+            />
           ))}
         </View>
       </View>
@@ -221,9 +462,107 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  mapContainer: {
+    width: '100%',
+    backgroundColor: '#E5E7EB',
+  },
+  map: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  centerMarker: {
+    position: 'absolute',
+    top: 0,
+    bottom: '50%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  pickupPill: {
+    backgroundColor: '#1E9E5A',
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: {width: 0, height: 3},
+    elevation: 4,
+  },
+  pickupPillText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: FONTS.semiBold,
+  },
+  centerPin: {
+    marginTop: -2,
+  },
+  recenterButton: {
+    position: 'absolute',
+    right: 16,
+    bottom: 74,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: {width: 0, height: 3},
+    elevation: 4,
+  },
+  addressCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 14,
+    minHeight: 52,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: {width: 0, height: 4},
+    elevation: 6,
+  },
+  addressDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#1E9E5A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  addressDotInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#1E9E5A',
+  },
+  addressText: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    fontFamily: FONTS.semiBold,
+    marginRight: 8,
+  },
+  scroll: {
+    flex: 1,
+  },
   contentContainer: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 16,
     paddingBottom: 110,
   },
   card: {
