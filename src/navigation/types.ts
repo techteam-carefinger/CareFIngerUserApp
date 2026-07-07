@@ -50,6 +50,13 @@ export type RootStackParamList = {
     };
     serviceTitle: string;
   };
+  SearchingCaretaker: {
+    latitude: number;
+    longitude: number;
+    address: string;
+    bookingId?: string;
+    nearbyProviders?: number;
+  };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;
 };

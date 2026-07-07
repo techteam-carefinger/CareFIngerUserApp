@@ -17,7 +17,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {ApiError, bookingService, storage} from '../services';
+import {storage} from '../services';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PickupConfirm'>;
 
@@ -51,7 +51,6 @@ export function PickupConfirmScreen({navigation, route}: Props) {
   });
   const [selectedAddress, setSelectedAddress] = useState(pickup.address);
   const [isResolving, setIsResolving] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasLocationPermission, setHasLocationPermission] = useState(Platform.OS === 'ios');
 
   useEffect(() => {
@@ -169,36 +168,18 @@ export function PickupConfirmScreen({navigation, route}: Props) {
       return;
     }
 
-    try {
-      setIsSubmitting(true);
+    void storage.setLocation({
+      latitude: selectedCoords.latitude,
+      longitude: selectedCoords.longitude,
+      address: selectedAddress,
+      capturedAt: Date.now(),
+    });
 
-      await storage.setLocation({
-        latitude: selectedCoords.latitude,
-        longitude: selectedCoords.longitude,
-        address: selectedAddress,
-        capturedAt: Date.now(),
-      });
-
-      const booking = await bookingService.createBooking({
-        lat: selectedCoords.latitude,
-        lng: selectedCoords.longitude,
-        address: selectedAddress,
-      });
-
-      Alert.alert(
-        'Booking created',
-        `Your caretaker request is ${booking.status}. ${booking.nearbyProviders} caretaker(s) nearby.`,
-        [{text: 'OK', onPress: () => navigation.navigate('Home')}],
-      );
-    } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : 'Could not create booking. Please try again.';
-      Alert.alert('Booking failed', message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    navigation.replace('SearchingCaretaker', {
+      latitude: selectedCoords.latitude,
+      longitude: selectedCoords.longitude,
+      address: selectedAddress,
+    });
   };
 
   const addressLineOne = selectedAddress.split(',')[0]?.trim() || selectedAddress;
@@ -268,16 +249,12 @@ export function PickupConfirmScreen({navigation, route}: Props) {
           </View>
 
           <Pressable
-            style={[styles.confirmButton, isSubmitting && styles.confirmButtonDisabled]}
+            style={styles.confirmButton}
             onPress={() => void onConfirmPickup()}
-            disabled={isSubmitting || isResolving}>
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color={COLORS.white} />
-            ) : (
-              <Text style={styles.confirmButtonText} allowFontScaling={false}>
-                Confirm pickup
-              </Text>
-            )}
+            disabled={isResolving}>
+            <Text style={styles.confirmButtonText} allowFontScaling={false}>
+              Confirm pickup
+            </Text>
           </Pressable>
 
           <Text style={styles.serviceHint} allowFontScaling={false}>
@@ -426,9 +403,6 @@ const styles = StyleSheet.create({
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  confirmButtonDisabled: {
-    opacity: 0.7,
   },
   confirmButtonText: {
     fontFamily: FONTS.bold,

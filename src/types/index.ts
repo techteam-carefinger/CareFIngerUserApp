@@ -91,3 +91,15 @@ export interface CreateBookingData {
   nearbyProviders: number;
   remainingMinutes: number;
 }
+
+export interface CurrentBooking {
+  bookingId: string;
+  status: string;
+  otp?: number;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  providerId?: string | null;
+  providerName?: string | null;
+  nearbyProviders?: number;
+}
