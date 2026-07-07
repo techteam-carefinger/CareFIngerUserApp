@@ -1,5 +1,5 @@
 import React from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 
 import {FONTS} from '../../constants';
@@ -12,6 +12,7 @@ type LocationItemProps = {
   subtitle: string;
   isLast?: boolean;
   isFavorite?: boolean;
+  onPress?: () => void;
 };
 
 export function LocationItem({
@@ -20,16 +21,17 @@ export function LocationItem({
   subtitle,
   isLast,
   isFavorite = false,
+  onPress,
 }: LocationItemProps) {
-  return (
-    <View style={[styles.locationRow, !isLast && styles.locationDivider]}>
+  const content = (
+    <>
       <View style={styles.locationLeft}>
         <Ionicons name={icon} size={18} color={THEME} style={styles.locationLeftIcon} />
         <View style={styles.locationTextWrap}>
           <Text style={styles.locationTitle} allowFontScaling={false}>
             {title}
           </Text>
-          <Text style={styles.locationSubtitle} numberOfLines={1} allowFontScaling={false}>
+          <Text style={styles.locationSubtitle} numberOfLines={2} allowFontScaling={false}>
             {subtitle}
           </Text>
         </View>
@@ -40,6 +42,22 @@ export function LocationItem({
         color={THEME}
         style={styles.locationHeart}
       />
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[styles.locationRow, !isLast && styles.locationDivider]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={[styles.locationRow, !isLast && styles.locationDivider]}>
+      {content}
     </View>
   );
 }

@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useNavigation} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import MapView, {PROVIDER_GOOGLE, Region} from 'react-native-maps';
@@ -28,14 +28,7 @@ import {ShareCard} from '../components/home/ShareCard';
 import {FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {storage} from '../services';
-import {CapturedLocation} from '../types';
-
-type Location = {
-  icon: 'home-outline' | 'time-outline';
-  title: string;
-  subtitle: string;
-  isFavorite?: boolean;
-};
+import {CapturedLocation, SavedRecentPlace} from '../types';
 
 type Tab = {
   icon: 'home-outline' | 'pricetag-outline' | 'person-outline';
@@ -61,25 +54,6 @@ const DEFAULT_REGION: Region = {
   latitudeDelta: 0.05,
   longitudeDelta: 0.05,
 };
-
-const LOCATIONS: Location[] = [
-  {
-    icon: 'home-outline',
-    title: 'Home',
-    subtitle: 'Central Market, Sector 4, Madangir, New Delhi',
-    isFavorite: true,
-  },
-  {
-    icon: 'time-outline',
-    title: 'Madangir market',
-    subtitle: 'Raja Ram Marg, Block B, Doctor Ambedkar Nagar',
-  },
-  {
-    icon: 'time-outline',
-    title: 'A4',
-    subtitle: 'Press Enclave Marg, Saket District Centre, Delhi',
-  },
-];
 
 const TABS: Tab[] = [
   {icon: 'home-outline', label: 'Home'},
@@ -133,6 +107,24 @@ export function HomeScreen() {
   const [coords, setCoords] = useState<Coords | null>(null);
   const [address, setAddress] = useState('');
   const [isResolving, setIsResolving] = useState(false);
+  const [recentPlaces, setRecentPlaces] = useState<SavedRecentPlace[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      void (async () => {
+        const places = await storage.getRecentPlaces();
+        if (!cancelled) {
+          setRecentPlaces(places);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     void bootstrapLocation();
@@ -308,6 +300,18 @@ export function HomeScreen() {
     );
   };
 
+  const openRecentPlace = useCallback(
+    (place: SavedRecentPlace) => {
+      navigation.navigate('LocationSearch', {
+        pickedLocation: place.address,
+        pickedTarget: 'destination',
+        pickedLatitude: place.latitude,
+        pickedLongitude: place.longitude,
+      });
+    },
+    [navigation],
+  );
+
   const handleShare = useCallback(async () => {
     const message = '#Umeed Hain #hope hain';
     const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
@@ -392,18 +396,20 @@ export function HomeScreen() {
           showsVerticalScrollIndicator={false}>
           <SearchBar onPress={() => navigation.navigate('LocationSearch')} />
 
-          <View style={styles.card}>
-            {LOCATIONS.map((location, index) => (
-              <LocationItem
-                key={`${location.title}-${index}`}
-                icon={location.icon}
-                title={location.title}
-                subtitle={location.subtitle}
-                isLast={index === LOCATIONS.length - 1}
-                isFavorite={location.isFavorite}
-              />
-            ))}
-          </View>
+          {recentPlaces.length > 0 ? (
+            <View style={styles.card}>
+              {recentPlaces.map((place, index) => (
+                <LocationItem
+                  key={place.id}
+                  icon="time-outline"
+                  title={place.title}
+                  subtitle={place.subtitle}
+                  isLast={index === recentPlaces.length - 1}
+                  onPress={() => openRecentPlace(place)}
+                />
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.bannerCarouselContainer}>
             <View style={styles.bannerWrap}>

@@ -8,6 +8,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import {FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {storage} from '../services';
+import {SavedRecentPlace} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LocationSearch'>;
 type AutocompletePrediction = {
@@ -72,33 +73,16 @@ const predictionToResult = (prediction: AutocompletePrediction): PlaceResult => 
   };
 };
 
-type RecentPlace = {
-  id: string;
-  icon: 'home-outline' | 'briefcase-outline' | 'star-outline';
-  title: string;
-  subtitle: string;
+const parseAddressParts = (address: string) => {
+  const parts = address
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  return {
+    title: parts[0] || address,
+    subtitle: parts.slice(1).join(', ') || address,
+  };
 };
-
-const RECENT_PLACES: RecentPlace[] = [
-  {
-    id: 'home',
-    icon: 'home-outline',
-    title: 'Home',
-    subtitle: 'Central Market, Sector 4, Madangir, New Delhi',
-  },
-  {
-    id: 'work',
-    icon: 'briefcase-outline',
-    title: 'Work',
-    subtitle: 'Nehru Place, New Delhi',
-  },
-  {
-    id: 'connaught',
-    icon: 'star-outline',
-    title: 'Connaught Place',
-    subtitle: 'Connaught Place, New Delhi',
-  },
-];
 
 export function LocationSearchScreen({navigation, route}: Props) {
   const [locationSearch, setLocationSearch] = useState('');
@@ -109,11 +93,45 @@ export function LocationSearchScreen({navigation, route}: Props) {
   const [destinationSuggestions, setDestinationSuggestions] = useState<PlaceResult[]>([]);
   const [isDestinationAutocompleteLoading, setIsDestinationAutocompleteLoading] = useState(false);
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+  const [recentPlaces, setRecentPlaces] = useState<SavedRecentPlace[]>([]);
   const pickupCoordsRef = useRef<LatLng | null>(null);
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destinationFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCurrentFetchRef = useRef(false);
   const skipNextDestinationFetchRef = useRef(false);
+
+  const loadRecentPlaces = useCallback(async () => {
+    const places = await storage.getRecentPlaces();
+    setRecentPlaces(places);
+  }, []);
+
+  const saveRecentDrop = useCallback(
+    async (input: {
+      address: string;
+      title?: string;
+      subtitle?: string;
+      latitude?: number;
+      longitude?: number;
+      placeId?: string;
+    }) => {
+      const address = input.address.trim();
+      if (!address) {
+        return;
+      }
+
+      const parts = parseAddressParts(address);
+      await storage.addRecentPlace({
+        title: input.title || parts.title,
+        subtitle: input.subtitle || parts.subtitle,
+        address,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        placeId: input.placeId,
+      });
+      await loadRecentPlaces();
+    },
+    [loadRecentPlaces],
+  );
 
   // Seed pickup from captured home location. Also re-runs on focus so pickup
   // survives LocationSearch remounting after returning from MapPicker.
@@ -122,8 +140,17 @@ export function LocationSearchScreen({navigation, route}: Props) {
       let cancelled = false;
 
       void (async () => {
-        const captured = await storage.getLocation();
-        if (cancelled || !captured) {
+        const [captured, recent] = await Promise.all([
+          storage.getLocation(),
+          storage.getRecentPlaces(),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        setRecentPlaces(recent);
+
+        if (!captured) {
           return;
         }
 
@@ -328,15 +355,51 @@ export function LocationSearchScreen({navigation, route}: Props) {
     setDestinationSuggestions([]);
     setIsDestinationAutocompleteLoading(false);
 
-    if (result.latitude != null && result.longitude != null) {
-      setDestinationCoords({latitude: result.latitude, longitude: result.longitude});
+    const coords =
+      result.latitude != null && result.longitude != null
+        ? {latitude: result.latitude, longitude: result.longitude}
+        : null;
+
+    if (coords) {
+      setDestinationCoords(coords);
+    }
+
+    void saveRecentDrop({
+      address: result.description,
+      title: result.name,
+      subtitle: result.address,
+      latitude: coords?.latitude,
+      longitude: coords?.longitude,
+      placeId: result.place_id,
+    });
+
+    if (coords) {
       return;
     }
 
-    void fetchPlaceCoords(result.place_id).then(coords => {
-      if (coords) {
-        setDestinationCoords(coords);
+    void fetchPlaceCoords(result.place_id).then(resolved => {
+      if (resolved) {
+        setDestinationCoords(resolved);
       }
+    });
+  };
+
+  const onSelectRecentPlace = (place: SavedRecentPlace) => {
+    skipNextDestinationFetchRef.current = true;
+    setDestination(place.address);
+    setDestinationSuggestions([]);
+    if (place.latitude != null && place.longitude != null) {
+      setDestinationCoords({latitude: place.latitude, longitude: place.longitude});
+    } else {
+      setDestinationCoords(null);
+    }
+    void saveRecentDrop({
+      address: place.address,
+      title: place.title,
+      subtitle: place.subtitle,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      placeId: place.placeId,
     });
   };
 
@@ -365,6 +428,11 @@ export function LocationSearchScreen({navigation, route}: Props) {
       if (pickedLatitude != null && pickedLongitude != null) {
         setDestinationCoords({latitude: pickedLatitude, longitude: pickedLongitude});
       }
+      void saveRecentDrop({
+        address: pickedLocation,
+        latitude: pickedLatitude,
+        longitude: pickedLongitude,
+      });
     }
 
     navigation.setParams({
@@ -379,6 +447,7 @@ export function LocationSearchScreen({navigation, route}: Props) {
     route.params?.pickedTarget,
     route.params?.pickedLatitude,
     route.params?.pickedLongitude,
+    saveRecentDrop,
   ]);
 
   const forwardGeocodeWithBias = async (
@@ -556,40 +625,40 @@ export function LocationSearchScreen({navigation, route}: Props) {
           ? renderResultsList(destinationSuggestions, onSelectDestinationSuggestion)
           : null}
 
-        {hasActiveResults ? null : (
+        {hasActiveResults ? null : recentPlaces.length > 0 ? (
           <>
             <Text style={styles.sectionTitle} allowFontScaling={false}>
               Recent Places
             </Text>
 
             <View style={styles.recentCard}>
-              {RECENT_PLACES.map((place, index) => (
-                <View
+              {recentPlaces.map((place, index) => (
+                <Pressable
                   key={place.id}
-                  style={[styles.placeRow, index === RECENT_PLACES.length - 1 && styles.lastRow]}>
+                  style={[
+                    styles.placeRow,
+                    index === recentPlaces.length - 1 && styles.lastRow,
+                  ]}
+                  onPress={() => onSelectRecentPlace(place)}>
                   <View style={styles.leftWrap}>
                     <View style={styles.placeIconWrap}>
-                      <Ionicons name={place.icon} size={20} color="#0E7490" />
+                      <Ionicons name="time-outline" size={20} color="#0E7490" />
                     </View>
                     <View style={styles.placeTextWrap}>
-                      <Text style={styles.placeTitle} allowFontScaling={false}>
+                      <Text style={styles.placeTitle} allowFontScaling={false} numberOfLines={1}>
                         {place.title}
                       </Text>
-                      <Text style={styles.placeSubtitle} allowFontScaling={false}>
+                      <Text style={styles.placeSubtitle} allowFontScaling={false} numberOfLines={2}>
                         {place.subtitle}
                       </Text>
                     </View>
                   </View>
                   <Ionicons name="arrow-forward" size={22} color="#0E7490" />
-                </View>
+                </Pressable>
               ))}
             </View>
-
-            <Text style={styles.footerText} allowFontScaling={false}>
-              More recent places
-            </Text>
           </>
-        )}
+        ) : null}
 
         <View style={styles.keyboardSpacer} />
       </ScrollView>

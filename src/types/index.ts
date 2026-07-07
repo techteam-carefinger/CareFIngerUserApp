@@ -60,3 +60,14 @@ export interface CapturedLocation {
   address?: string;
   capturedAt: number;
 }
+
+export interface SavedRecentPlace {
+  id: string;
+  title: string;
+  subtitle: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  placeId?: string;
+  savedAt: number;
+}
