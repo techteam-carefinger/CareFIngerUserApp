@@ -1,7 +1,8 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
   FlatList,
   Image,
+  Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
@@ -101,6 +102,23 @@ export function HomeScreen() {
     setActiveBannerIndex(index);
   };
 
+  const handleShare = useCallback(async () => {
+    const message = '#Umeed Hain #hope hain';
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    try {
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        await Linking.openURL(
+          `https://wa.me/?text=${encodeURIComponent(message)}`,
+        );
+      }
+    } catch (error) {
+      // no-op: unable to open WhatsApp
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.screen}>
@@ -146,7 +164,7 @@ export function HomeScreen() {
             </View>
           </View>
 
-          <ShareCard />
+          <ShareCard onPress={handleShare} />
         </ScrollView>
 
         <View style={styles.bottomBar}>
