@@ -179,6 +179,8 @@ export function PickupConfirmScreen({navigation, route}: Props) {
       latitude: selectedCoords.latitude,
       longitude: selectedCoords.longitude,
       address: selectedAddress,
+      planTitle: route.params.serviceTitle,
+      planAmount: route.params.planAmount,
     });
   };
 

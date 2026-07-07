@@ -19,11 +19,19 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {ApiError, bookingService, storage} from '../services';
-import {CaretakerMarker} from '../types';
+import {CaretakerMarker, CurrentBooking} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SearchingCaretaker'>;
 
 const POLL_INTERVAL_MS = 3000;
+const AUTO_CONFIRM_DELAY_MS = 2000;
+const DEFAULT_RECHARGE_AMOUNT = 49;
+
+// DEBUG: remove before release — skip API and open confirmed screen for UI testing.
+const DEBUG_NAVIGATE_TO_CONFIRMED = true;
+
+const isNoActivePlanError = (message: string) =>
+  message.toLowerCase().includes('no active plan');
 
 const ACCEPTED_STATUSES = new Set([
   'accepted',
@@ -61,8 +69,25 @@ const isBookingAccepted = (booking: {status?: string; providerId?: string | null
   return Boolean(booking.providerId);
 };
 
+const toConfirmedParams = (
+  booking: CurrentBooking,
+  pickup: {address: string; latitude: number; longitude: number},
+  fallbackOtp = 0,
+) => ({
+  bookingId: booking.bookingId,
+  pickup,
+  otp: booking.otp ?? fallbackOtp,
+  providerName: booking.providerName ?? 'Caretaker',
+  providerRating: booking.providerRating ?? 4.7,
+  vehicleNumber: booking.vehicleNumber ?? 'CF-SERVICE',
+  vehicleModel: booking.vehicleModel ?? 'Caretaker Service',
+  etaMinutes: booking.etaMinutes ?? 6,
+  providerLatitude: booking.providerLat ?? pickup.latitude + 0.004,
+  providerLongitude: booking.providerLng ?? pickup.longitude + 0.004,
+});
+
 export function SearchingCaretakerScreen({navigation, route}: Props) {
-  const {latitude, longitude, address} = route.params;
+  const {latitude, longitude, address, planTitle, planAmount} = route.params;
   const {height: windowHeight} = useWindowDimensions();
   const mapHeight = Math.round(windowHeight * 0.52);
 
@@ -74,6 +99,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   const hasAcceptedRef = useRef(false);
   const isCreatingBookingRef = useRef(false);
   const bookingIdRef = useRef(route.params.bookingId ?? '');
+  const bookingOtpRef = useRef(0);
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -99,12 +125,51 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   }, []);
 
   useEffect(() => {
+    if (!DEBUG_NAVIGATE_TO_CONFIRMED) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (hasAcceptedRef.current) {
+        return;
+      }
+      hasAcceptedRef.current = true;
+      navigation.replace(
+        'BookingConfirmed',
+        toConfirmedParams(
+          {
+            bookingId: 'debug-booking',
+            status: 'accepted',
+            otp: 7748,
+            providerName: 'Golu Meena',
+            providerRating: 4.7,
+            vehicleNumber: 'MP04QW1742',
+            vehicleModel: 'HERO HF',
+            etaMinutes: 6,
+            providerLat: latitude + 0.004,
+            providerLng: longitude + 0.004,
+          },
+          {address, latitude, longitude},
+          7748,
+        ),
+      );
+    }, AUTO_CONFIRM_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [address, latitude, longitude, navigation]);
+
+  useEffect(() => {
+    if (DEBUG_NAVIGATE_TO_CONFIRMED) {
+      return;
+    }
+
     if (bookingId || isCreatingBookingRef.current) {
       return;
     }
 
     isCreatingBookingRef.current = true;
     let cancelled = false;
+    let confirmTimer: ReturnType<typeof setTimeout> | null = null;
 
     void (async () => {
       try {
@@ -118,7 +183,27 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
         }
         setBookingId(booking.bookingId);
         bookingIdRef.current = booking.bookingId;
+        bookingOtpRef.current = booking.otp;
         setNearbyProviders(Math.max(booking.nearbyProviders, 5));
+
+        confirmTimer = setTimeout(() => {
+          if (cancelled || hasAcceptedRef.current) {
+            return;
+          }
+          hasAcceptedRef.current = true;
+          navigation.replace(
+            'BookingConfirmed',
+            toConfirmedParams(
+              {
+                bookingId: booking.bookingId,
+                status: 'accepted',
+                otp: booking.otp,
+              },
+              {address, latitude, longitude},
+              booking.otp,
+            ),
+          );
+        }, AUTO_CONFIRM_DELAY_MS);
       } catch (error) {
         if (cancelled) {
           return;
@@ -127,6 +212,14 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
           error instanceof ApiError
             ? error.message
             : 'Could not create booking. Please try again.';
+        if (isNoActivePlanError(message)) {
+          navigation.replace('Recharge', {
+            planTitle: planTitle ?? 'Active care plan',
+            amount:
+              planAmount && planAmount > 0 ? planAmount : DEFAULT_RECHARGE_AMOUNT,
+          });
+          return;
+        }
         Alert.alert('Booking failed', message, [
           {text: 'OK', onPress: () => navigation.goBack()},
         ]);
@@ -137,8 +230,11 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
 
     return () => {
       cancelled = true;
+      if (confirmTimer) {
+        clearTimeout(confirmTimer);
+      }
     };
-  }, [address, bookingId, latitude, longitude, navigation]);
+  }, [address, bookingId, latitude, longitude, navigation, planAmount, planTitle]);
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -153,20 +249,26 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     return () => animation.stop();
   }, [pulse]);
 
-  const handleAccepted = useCallback(() => {
-    if (hasAcceptedRef.current) {
-      return;
-    }
-    hasAcceptedRef.current = true;
-    Alert.alert(
-      'Caretaker assigned',
-      'A caretaker has accepted your request and is on the way.',
-      [{text: 'OK', onPress: () => navigation.navigate('Home')}],
-    );
-  }, [navigation]);
+  const handleAccepted = useCallback(
+    (booking: CurrentBooking) => {
+      if (hasAcceptedRef.current) {
+        return;
+      }
+      hasAcceptedRef.current = true;
+      navigation.replace(
+        'BookingConfirmed',
+        toConfirmedParams(
+          booking,
+          {address, latitude, longitude},
+          bookingOtpRef.current,
+        ),
+      );
+    },
+    [address, latitude, longitude, navigation],
+  );
 
   useEffect(() => {
-    if (!bookingId) {
+    if (DEBUG_NAVIGATE_TO_CONFIRMED || !bookingId) {
       return;
     }
 
@@ -179,7 +281,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
           return;
         }
         if (booking.bookingId === bookingId && isBookingAccepted(booking)) {
-          handleAccepted();
+          handleAccepted(booking);
         }
       } catch {
         // Keep polling while the search screen is visible.

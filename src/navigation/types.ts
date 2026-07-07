@@ -49,6 +49,7 @@ export type RootStackParamList = {
       longitude: number;
     };
     serviceTitle: string;
+    planAmount?: number;
   };
   SearchingCaretaker: {
     latitude: number;
@@ -56,6 +57,24 @@ export type RootStackParamList = {
     address: string;
     bookingId?: string;
     nearbyProviders?: number;
+    planTitle?: string;
+    planAmount?: number;
+  };
+  BookingConfirmed: {
+    bookingId: string;
+    pickup: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    otp: number;
+    providerName: string;
+    providerRating: number;
+    vehicleNumber: string;
+    vehicleModel: string;
+    etaMinutes: number;
+    providerLatitude: number;
+    providerLongitude: number;
   };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;

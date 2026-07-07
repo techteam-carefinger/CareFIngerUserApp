@@ -258,6 +258,7 @@ export function RideBookingScreen({navigation, route}: Props) {
       pickup,
       drop,
       serviceTitle: selectedOption.title,
+      planAmount: selectedOption.price,
     });
   };
 

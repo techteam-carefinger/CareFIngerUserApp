@@ -101,7 +101,30 @@ export interface CurrentBooking {
   address?: string;
   providerId?: string | null;
   providerName?: string | null;
+  providerRating?: number;
+  vehicleNumber?: string;
+  vehicleModel?: string;
+  providerLat?: number;
+  providerLng?: number;
+  etaMinutes?: number;
   nearbyProviders?: number;
+}
+
+export interface ConfirmedBookingParams {
+  bookingId: string;
+  pickup: {
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
+  otp: number;
+  providerName: string;
+  providerRating: number;
+  vehicleNumber: string;
+  vehicleModel: string;
+  etaMinutes: number;
+  providerLatitude: number;
+  providerLongitude: number;
 }
 
 export interface CancelBookingData {
