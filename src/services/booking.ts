@@ -1,4 +1,4 @@
-import {CreateBookingData, CurrentBooking} from '../types';
+import {CancelBookingData, CreateBookingData, CurrentBooking} from '../types';
 import {api} from './api';
 
 export const bookingService = {
@@ -24,8 +24,8 @@ export const bookingService = {
     return data ?? null;
   },
 
-  async cancelBooking(bookingId: string, reason?: string): Promise<void> {
-    await api.post<unknown>('/cancel-booking', {
+  async cancelBooking(bookingId: string, reason = 'Cancelled by user'): Promise<CancelBookingData> {
+    return api.post<CancelBookingData>('/cancel-booking', {
       auth: true,
       body: {
         bookingId,

@@ -73,6 +73,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   const isCancellingRef = useRef(false);
   const hasAcceptedRef = useRef(false);
   const isCreatingBookingRef = useRef(false);
+  const bookingIdRef = useRef(route.params.bookingId ?? '');
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -116,6 +117,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
           return;
         }
         setBookingId(booking.bookingId);
+        bookingIdRef.current = booking.bookingId;
         setNearbyProviders(Math.max(booking.nearbyProviders, 5));
       } catch (error) {
         if (cancelled) {
@@ -195,20 +197,49 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     };
   }, [bookingId, handleAccepted]);
 
-  const cancelSearch = async () => {
+  const resolveBookingIdForCancel = useCallback(async () => {
+    if (bookingIdRef.current) {
+      return bookingIdRef.current;
+    }
+
+    try {
+      const current = await bookingService.getCurrentBooking();
+      if (current?.bookingId) {
+        bookingIdRef.current = current.bookingId;
+        setBookingId(current.bookingId);
+        return current.bookingId;
+      }
+    } catch {
+      // Fall through if current booking cannot be loaded.
+    }
+
+    return null;
+  }, []);
+
+  const cancelSearch = useCallback(async () => {
     if (isCancellingRef.current) {
       return;
     }
 
-    if (!bookingId) {
-      navigation.navigate('Home');
+    const token = await storage.getToken();
+    if (!token) {
+      Alert.alert('Login required', 'Please log in to cancel your booking.', [
+        {text: 'OK', onPress: () => navigation.navigate('Login')},
+      ]);
       return;
     }
 
     try {
       isCancellingRef.current = true;
       setIsCancelling(true);
-      await bookingService.cancelBooking(bookingId, 'Cancelled by user');
+
+      const activeBookingId = await resolveBookingIdForCancel();
+      if (!activeBookingId) {
+        navigation.navigate('Home');
+        return;
+      }
+
+      await bookingService.cancelBooking(activeBookingId, 'Cancelled by user');
       navigation.navigate('Home');
     } catch (error) {
       const message =
@@ -220,7 +251,14 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
       isCancellingRef.current = false;
       setIsCancelling(false);
     }
-  };
+  }, [navigation, resolveBookingIdForCancel]);
+
+  const confirmCancelBooking = useCallback(() => {
+    Alert.alert('Cancel booking?', 'Do you want to cancel this caretaker request?', [
+      {text: 'No', style: 'cancel'},
+      {text: 'Yes', style: 'destructive', onPress: () => void cancelSearch()},
+    ]);
+  }, [cancelSearch]);
 
   const ringScale = (index: number) =>
     pulse.interpolate({
@@ -238,14 +276,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Pressable
-            onPress={() =>
-              Alert.alert('Cancel search?', 'Do you want to cancel this booking request?', [
-                {text: 'No', style: 'cancel'},
-                {text: 'Yes', style: 'destructive', onPress: () => void cancelSearch()},
-              ])
-            }
-            style={styles.backButton}>
+          <Pressable onPress={confirmCancelBooking} style={styles.backButton}>
             <Ionicons name="arrow-back" size={22} color="#111827" />
           </Pressable>
           <Text style={styles.headerTitle} allowFontScaling={false}>
@@ -317,7 +348,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
 
         <Pressable
           style={[styles.cancelButton, isCancelling && styles.cancelButtonDisabled]}
-          onPress={() => void cancelSearch()}
+          onPress={confirmCancelBooking}
           disabled={isCancelling}>
           {isCancelling ? (
             <ActivityIndicator size="small" color={COLORS.white} />

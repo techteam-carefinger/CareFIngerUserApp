@@ -103,3 +103,8 @@ export interface CurrentBooking {
   providerName?: string | null;
   nearbyProviders?: number;
 }
+
+export interface CancelBookingData {
+  bookingId?: string;
+  status?: string;
+}
