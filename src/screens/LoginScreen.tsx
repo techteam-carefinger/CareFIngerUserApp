@@ -2,13 +2,12 @@ import React, {useMemo, useState} from 'react';
 import {
   Alert,
   Image,
-  Linking,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 
 import {CustomButton, CustomCheckbox, CustomInput} from '../components';
@@ -71,9 +70,9 @@ export function LoginScreen({navigation}: LoginScreenProps) {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.backgroundCircleTop} />
-      <View style={styles.backgroundCircleBottom} />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <View style={styles.backgroundCircleTop} pointerEvents="none" />
+      <View style={styles.backgroundCircleBottom} pointerEvents="none" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled">
@@ -120,13 +119,15 @@ export function LoginScreen({navigation}: LoginScreenProps) {
           {legalText.leading}
           <Text
             style={styles.footerLink}
-            onPress={() => Linking.openURL('https://example.com/terms')}>
+            suppressHighlighting
+            onPress={() => navigation.navigate('TermsAndConditions')}>
             {legalText.terms}
           </Text>
           {legalText.middle}
           <Text
             style={styles.footerLink}
-            onPress={() => Linking.openURL('https://example.com/privacy')}>
+            suppressHighlighting
+            onPress={() => navigation.navigate('PrivacyPolicy')}>
             {legalText.privacy}
           </Text>
           {legalText.trailing}
@@ -164,7 +165,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 24,
-    paddingBottom: 30,
+    paddingBottom: 24,
     flexGrow: 1,
   },
   logoSection: {
@@ -219,8 +220,10 @@ const styles = StyleSheet.create({
   footerText: {
     marginTop: 'auto',
     paddingTop: 34,
+    paddingBottom: 8,
+    marginHorizontal: -8,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 20,
     color: COLORS.textSecondary,
     fontFamily: FONTS.regular,

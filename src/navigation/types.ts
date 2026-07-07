@@ -17,4 +17,6 @@ export type RootStackParamList = {
     target: 'current' | 'destination';
     initialQuery?: string;
   };
+  TermsAndConditions: undefined;
+  PrivacyPolicy: undefined;
 };

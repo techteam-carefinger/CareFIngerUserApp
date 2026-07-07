@@ -10,6 +10,10 @@ import {LocationSearchScreen} from '../screens/LocationSearchScreen';
 import {MapPickerScreen} from '../screens/MapPickerScreen';
 import {OtpVerificationScreen} from '../screens/OtpVerificationScreen';
 import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
+import {
+  PrivacyPolicyScreen,
+  TermsAndConditionsScreen,
+} from '../screens/TermsAndConditionsScreen';
 import {RootStackParamList} from '../navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -19,13 +23,23 @@ function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
       <NavigationContainer>
-        <Stack.Navigator screenOptions={{headerShown: false}}>
+        <Stack.Navigator
+          screenOptions={{headerShown: false}}
+          >
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
           <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="LocationSearch" component={LocationSearchScreen} />
           <Stack.Screen name="MapPicker" component={MapPickerScreen} />
+          <Stack.Screen
+            name="TermsAndConditions"
+            component={TermsAndConditionsScreen}
+          />
+          <Stack.Screen
+            name="PrivacyPolicy"
+            component={PrivacyPolicyScreen}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

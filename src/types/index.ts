@@ -30,6 +30,18 @@ export interface ApiResponse<T> {
 }
 
 /**
+ * Legal document (terms & conditions / privacy) served from the admin_link API.
+ * `content` is an HTML string authored in the admin panel.
+ */
+export interface LegalDocument {
+  _id: string;
+  type: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * Profile details collected during setup that the backend has no field for.
  * Kept on-device so they can prefill later flows (e.g. booking address).
  */

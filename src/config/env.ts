@@ -17,6 +17,9 @@ APL_LINK = 'https://carefingernodejs.onrender.com/'; // 🔥 production
 /* ================= PATIENT (USER APP) LINK ================= */
 export const API_BASE_URL: string = APL_LINK + 'api/patient';
 
+/* ================= ADMIN LINK (shared content: terms, privacy) ================= */
+export const ADMIN_API_BASE_URL: string = APL_LINK + 'api/admin_link';
+
 export const AUTH_CONFIG = {
   defaultCountryCode: '+91',
 } as const;
