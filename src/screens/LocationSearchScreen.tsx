@@ -1,8 +1,9 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useFocusEffect} from '@react-navigation/native';
 
 import {FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
@@ -12,9 +13,64 @@ type Props = NativeStackScreenProps<RootStackParamList, 'LocationSearch'>;
 type AutocompletePrediction = {
   description: string;
   place_id: string;
+  structured_formatting?: {
+    main_text?: string;
+    secondary_text?: string;
+  };
+};
+
+type LatLng = {latitude: number; longitude: number};
+
+type PlaceResult = {
+  place_id: string;
+  name: string;
+  address: string;
+  description: string;
+  distanceKm: number | null;
+  latitude?: number;
+  longitude?: number;
 };
 
 const GOOGLE_MAPS_API_KEY: string = 'AIzaSyBE3GNStuB23c1ZT8j9C2tfFuFFue4NY4U';
+
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const distanceInKm = (from: LatLng, to: LatLng) => {
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(to.latitude - from.latitude);
+  const dLng = toRadians(to.longitude - from.longitude);
+  const lat1 = toRadians(from.latitude);
+  const lat2 = toRadians(to.latitude);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * earthRadiusKm * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+const formatDistance = (km: number | null) => {
+  if (km == null) {
+    return '';
+  }
+  if (km >= 100) {
+    return `${Math.round(km)} km`;
+  }
+  if (km >= 10) {
+    return `${km.toFixed(1)} km`;
+  }
+  return `${km.toFixed(1)} km`;
+};
+
+const predictionToResult = (prediction: AutocompletePrediction): PlaceResult => {
+  const mainText = prediction.structured_formatting?.main_text;
+  const secondaryText = prediction.structured_formatting?.secondary_text;
+  return {
+    place_id: prediction.place_id,
+    name: mainText || prediction.description,
+    address: secondaryText || prediction.description,
+    description: prediction.description,
+    distanceKm: null,
+  };
+};
 
 type RecentPlace = {
   id: string;
@@ -46,41 +102,53 @@ const RECENT_PLACES: RecentPlace[] = [
 
 export function LocationSearchScreen({navigation, route}: Props) {
   const [locationSearch, setLocationSearch] = useState('');
-  const [locationSuggestions, setLocationSuggestions] = useState<AutocompletePrediction[]>([]);
+  const [locationSuggestions, setLocationSuggestions] = useState<PlaceResult[]>([]);
   const [isLocationAutocompleteLoading, setIsLocationAutocompleteLoading] = useState(false);
   const [destination, setDestination] = useState('');
-  const [destinationSuggestions, setDestinationSuggestions] = useState<AutocompletePrediction[]>([]);
+  const [destinationCoords, setDestinationCoords] = useState<LatLng | null>(null);
+  const [destinationSuggestions, setDestinationSuggestions] = useState<PlaceResult[]>([]);
   const [isDestinationAutocompleteLoading, setIsDestinationAutocompleteLoading] = useState(false);
+  const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+  const pickupCoordsRef = useRef<LatLng | null>(null);
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destinationFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCurrentFetchRef = useRef(false);
   const skipNextDestinationFetchRef = useRef(false);
 
-  // Prefill the pickup field with the location captured on the previous
-  // (home/map) screen, so the user only has to enter their drop location.
-  useEffect(() => {
-    let cancelled = false;
+  // Seed pickup from captured home location. Also re-runs on focus so pickup
+  // survives LocationSearch remounting after returning from MapPicker.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    void (async () => {
-      const captured = await storage.getLocation();
-      if (cancelled || !captured) {
-        return;
-      }
-      if (!route.params?.pickedLocation) {
-        skipNextCurrentFetchRef.current = true;
-        setLocationSearch(
-          captured.address ||
-            `${captured.latitude.toFixed(6)}, ${captured.longitude.toFixed(6)}`,
-        );
-      }
-    })();
+      void (async () => {
+        const captured = await storage.getLocation();
+        if (cancelled || !captured) {
+          return;
+        }
 
-    return () => {
-      cancelled = true;
-    };
-    // Run once on mount to seed the pickup from the captured location.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+        pickupCoordsRef.current = {
+          latitude: captured.latitude,
+          longitude: captured.longitude,
+        };
+
+        setLocationSearch(current => {
+          if (current.trim()) {
+            return current;
+          }
+          skipNextCurrentFetchRef.current = true;
+          return (
+            captured.address ||
+            `${captured.latitude.toFixed(6)}, ${captured.longitude.toFixed(6)}`
+          );
+        });
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     if (skipNextCurrentFetchRef.current) {
@@ -138,6 +206,54 @@ export function LocationSearchScreen({navigation, route}: Props) {
     };
   }, [destination]);
 
+  const fetchPlaceCoords = async (placeId: string): Promise<LatLng | null> => {
+    try {
+      const endpoint =
+        'https://maps.googleapis.com/maps/api/place/details/json' +
+        `?place_id=${encodeURIComponent(placeId)}&fields=geometry&key=${GOOGLE_MAPS_API_KEY}`;
+      const response = await fetch(endpoint);
+      const data = (await response.json()) as {
+        status?: string;
+        result?: {geometry?: {location?: {lat?: number; lng?: number}}};
+      };
+      const location = data.result?.geometry?.location;
+      if (data.status === 'OK' && location?.lat != null && location?.lng != null) {
+        return {latitude: location.lat, longitude: location.lng};
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const enrichResultsWithDistance = (results: PlaceResult[], target: 'current' | 'destination') => {
+    const origin = pickupCoordsRef.current;
+    if (!origin) {
+      return;
+    }
+
+    results.forEach(result => {
+      void (async () => {
+        const coords = await fetchPlaceCoords(result.place_id);
+        if (!coords) {
+          return;
+        }
+        const km = distanceInKm(origin, coords);
+        const applyDistance = (prev: PlaceResult[]) =>
+          prev.map(item =>
+            item.place_id === result.place_id
+              ? {...item, distanceKm: km, latitude: coords.latitude, longitude: coords.longitude}
+              : item,
+          );
+        if (target === 'current') {
+          setLocationSuggestions(applyDistance);
+        } else {
+          setDestinationSuggestions(applyDistance);
+        }
+      })();
+    });
+  };
+
   const fetchLocationSuggestions = async (query: string, target: 'current' | 'destination') => {
     if (!GOOGLE_MAPS_API_KEY) {
       if (target === 'current') {
@@ -164,11 +280,13 @@ export function LocationSearchScreen({navigation, route}: Props) {
       };
 
       if (data.status === 'OK' && Array.isArray(data.predictions)) {
+        const results = data.predictions.map(predictionToResult);
         if (target === 'current') {
-          setLocationSuggestions(data.predictions);
+          setLocationSuggestions(results);
         } else {
-          setDestinationSuggestions(data.predictions);
+          setDestinationSuggestions(results);
         }
+        enrichResultsWithDistance(results, target);
       } else {
         if (target === 'current') {
           setLocationSuggestions([]);
@@ -191,29 +309,46 @@ export function LocationSearchScreen({navigation, route}: Props) {
     }
   };
 
-  const onSelectLocationSuggestion = (prediction: AutocompletePrediction) => {
+  const onSelectLocationSuggestion = (result: PlaceResult) => {
     skipNextCurrentFetchRef.current = true;
     if (fetchDebounceRef.current) {
       clearTimeout(fetchDebounceRef.current);
     }
-    setLocationSearch(prediction.description);
+    setLocationSearch(result.description);
     setLocationSuggestions([]);
     setIsLocationAutocompleteLoading(false);
   };
 
-  const onSelectDestinationSuggestion = (prediction: AutocompletePrediction) => {
+  const onSelectDestinationSuggestion = (result: PlaceResult) => {
     skipNextDestinationFetchRef.current = true;
     if (destinationFetchDebounceRef.current) {
       clearTimeout(destinationFetchDebounceRef.current);
     }
-    setDestination(prediction.description);
+    setDestination(result.description);
     setDestinationSuggestions([]);
     setIsDestinationAutocompleteLoading(false);
+
+    if (result.latitude != null && result.longitude != null) {
+      setDestinationCoords({latitude: result.latitude, longitude: result.longitude});
+      return;
+    }
+
+    void fetchPlaceCoords(result.place_id).then(coords => {
+      if (coords) {
+        setDestinationCoords(coords);
+      }
+    });
+  };
+
+  const toggleFavorite = (placeId: string) => {
+    setFavorites(prev => ({...prev, [placeId]: !prev[placeId]}));
   };
 
   useEffect(() => {
     const pickedLocation = route.params?.pickedLocation;
     const pickedTarget = route.params?.pickedTarget;
+    const pickedLatitude = route.params?.pickedLatitude;
+    const pickedLongitude = route.params?.pickedLongitude;
 
     if (!pickedLocation || !pickedTarget) {
       return;
@@ -227,20 +362,129 @@ export function LocationSearchScreen({navigation, route}: Props) {
       skipNextDestinationFetchRef.current = true;
       setDestination(pickedLocation);
       setDestinationSuggestions([]);
+      if (pickedLatitude != null && pickedLongitude != null) {
+        setDestinationCoords({latitude: pickedLatitude, longitude: pickedLongitude});
+      }
     }
 
     navigation.setParams({
       pickedLocation: undefined,
       pickedTarget: undefined,
+      pickedLatitude: undefined,
+      pickedLongitude: undefined,
     });
-  }, [navigation, route.params?.pickedLocation, route.params?.pickedTarget]);
+  }, [
+    navigation,
+    route.params?.pickedLocation,
+    route.params?.pickedTarget,
+    route.params?.pickedLatitude,
+    route.params?.pickedLongitude,
+  ]);
 
-  const openMapLocation = () => {
+  const forwardGeocodeWithBias = async (
+    query: string,
+    bias: LatLng | null,
+  ): Promise<LatLng | null> => {
+    if (!GOOGLE_MAPS_API_KEY) {
+      return null;
+    }
+
+    try {
+      let endpoint =
+        'https://maps.googleapis.com/maps/api/geocode/json' +
+        `?address=${encodeURIComponent(query)}&key=${GOOGLE_MAPS_API_KEY}&components=country:in`;
+      if (bias) {
+        endpoint += `&location=${bias.latitude},${bias.longitude}&radius=50000`;
+      }
+      const response = await fetch(endpoint);
+      const data = (await response.json()) as {
+        status?: string;
+        results?: Array<{geometry?: {location?: {lat?: number; lng?: number}}}>;
+      };
+      const location = data.results?.[0]?.geometry?.location;
+      if (data.status === 'OK' && location?.lat != null && location?.lng != null) {
+        return {latitude: location.lat, longitude: location.lng};
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const openMapLocation = async () => {
+    let latitude = destinationCoords?.latitude;
+    let longitude = destinationCoords?.longitude;
+
+    if ((latitude == null || longitude == null) && destination.trim()) {
+      const resolved = await forwardGeocodeWithBias(
+        destination.trim(),
+        pickupCoordsRef.current,
+      );
+      if (resolved) {
+        latitude = resolved.latitude;
+        longitude = resolved.longitude;
+        setDestinationCoords(resolved);
+      }
+    }
+
     navigation.navigate('MapPicker', {
       target: 'destination',
-      initialQuery: destination.trim() || locationSearch.trim(),
+      initialQuery: destination.trim() || undefined,
+      initialLatitude: latitude,
+      initialLongitude: longitude,
     });
   };
+
+  const renderResultsList = (
+    results: PlaceResult[],
+    onSelect: (result: PlaceResult) => void,
+  ) => (
+    <View style={styles.resultsList}>
+      {results.map((result, index) => {
+        const distanceLabel = formatDistance(result.distanceKm);
+        const isLast = index === results.length - 1;
+        return (
+          <Pressable
+            key={result.place_id}
+            style={[styles.resultRow, isLast && styles.resultRowLast]}
+            onPress={() => onSelect(result)}>
+            <View style={styles.resultLeft}>
+              <Ionicons name="location-sharp" size={20} color="#334155" />
+              {distanceLabel ? (
+                <Text style={styles.resultDistance} allowFontScaling={false}>
+                  {distanceLabel}
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.resultTextWrap}>
+              <Text style={styles.resultName} allowFontScaling={false} numberOfLines={1}>
+                {result.name}
+              </Text>
+              <Text style={styles.resultAddress} allowFontScaling={false} numberOfLines={1}>
+                {result.address}
+              </Text>
+            </View>
+            <Pressable
+              hitSlop={8}
+              onPress={() => toggleFavorite(result.place_id)}
+              style={styles.favoriteButton}>
+              <Ionicons
+                name={favorites[result.place_id] ? 'heart' : 'heart-outline'}
+                size={22}
+                color={favorites[result.place_id] ? '#EF4444' : '#94A3B8'}
+              />
+            </Pressable>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const hasActiveResults =
+    locationSuggestions.length > 0 ||
+    destinationSuggestions.length > 0 ||
+    isLocationAutocompleteLoading ||
+    isDestinationAutocompleteLoading;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -277,57 +521,16 @@ export function LocationSearchScreen({navigation, route}: Props) {
             <View style={[styles.pinRing, styles.dropRing]} />
             <TextInput
               value={destination}
-              onChangeText={setDestination}
+              onChangeText={text => {
+                setDestination(text);
+                setDestinationCoords(null);
+              }}
               placeholder="Drop location"
               placeholderTextColor="#9CA3AF"
               style={styles.input}
               allowFontScaling={false}
             />
           </View>
-
-          {isLocationAutocompleteLoading ? (
-            <Text style={styles.loadingText} allowFontScaling={false}>
-              Loading suggestions...
-            </Text>
-          ) : null}
-
-          {locationSuggestions.length > 0 ? (
-            <View style={styles.suggestionsCard}>
-              {locationSuggestions.map(suggestion => (
-                <Pressable
-                  key={suggestion.place_id}
-                  style={styles.suggestionRow}
-                  onPress={() => onSelectLocationSuggestion(suggestion)}>
-                  <Ionicons name="location-outline" size={18} color="#0E7490" />
-                  <Text style={styles.suggestionText} allowFontScaling={false} numberOfLines={2}>
-                    {suggestion.description}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
-          {isDestinationAutocompleteLoading ? (
-            <Text style={styles.loadingText} allowFontScaling={false}>
-              Loading destination suggestions...
-            </Text>
-          ) : null}
-
-          {destinationSuggestions.length > 0 ? (
-            <View style={styles.suggestionsCard}>
-              {destinationSuggestions.map(suggestion => (
-                <Pressable
-                  key={`destination-${suggestion.place_id}`}
-                  style={styles.suggestionRow}
-                  onPress={() => onSelectDestinationSuggestion(suggestion)}>
-                  <Ionicons name="navigate-outline" size={18} color="#EA580C" />
-                  <Text style={styles.suggestionText} allowFontScaling={false} numberOfLines={2}>
-                    {suggestion.description}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
         </View>
 
         <View style={styles.pillRow}>
@@ -339,34 +542,54 @@ export function LocationSearchScreen({navigation, route}: Props) {
           </Pressable>
         </View>
 
-        <Text style={styles.sectionTitle} allowFontScaling={false}>
-          Recent Places
-        </Text>
+        {isLocationAutocompleteLoading || isDestinationAutocompleteLoading ? (
+          <Text style={styles.loadingText} allowFontScaling={false}>
+            Searching...
+          </Text>
+        ) : null}
 
-        <View style={styles.recentCard}>
-          {RECENT_PLACES.map((place, index) => (
-            <View key={place.id} style={[styles.placeRow, index === RECENT_PLACES.length - 1 && styles.lastRow]}>
-              <View style={styles.leftWrap}>
-                <View style={styles.placeIconWrap}>
-                  <Ionicons name={place.icon} size={20} color="#0E7490" />
+        {locationSuggestions.length > 0
+          ? renderResultsList(locationSuggestions, onSelectLocationSuggestion)
+          : null}
+
+        {destinationSuggestions.length > 0
+          ? renderResultsList(destinationSuggestions, onSelectDestinationSuggestion)
+          : null}
+
+        {hasActiveResults ? null : (
+          <>
+            <Text style={styles.sectionTitle} allowFontScaling={false}>
+              Recent Places
+            </Text>
+
+            <View style={styles.recentCard}>
+              {RECENT_PLACES.map((place, index) => (
+                <View
+                  key={place.id}
+                  style={[styles.placeRow, index === RECENT_PLACES.length - 1 && styles.lastRow]}>
+                  <View style={styles.leftWrap}>
+                    <View style={styles.placeIconWrap}>
+                      <Ionicons name={place.icon} size={20} color="#0E7490" />
+                    </View>
+                    <View style={styles.placeTextWrap}>
+                      <Text style={styles.placeTitle} allowFontScaling={false}>
+                        {place.title}
+                      </Text>
+                      <Text style={styles.placeSubtitle} allowFontScaling={false}>
+                        {place.subtitle}
+                      </Text>
+                    </View>
+                  </View>
+                  <Ionicons name="arrow-forward" size={22} color="#0E7490" />
                 </View>
-                <View style={styles.placeTextWrap}>
-                  <Text style={styles.placeTitle} allowFontScaling={false}>
-                    {place.title}
-                  </Text>
-                  <Text style={styles.placeSubtitle} allowFontScaling={false}>
-                    {place.subtitle}
-                  </Text>
-                </View>
-              </View>
-              <Ionicons name="arrow-forward" size={22} color="#0E7490" />
+              ))}
             </View>
-          ))}
-        </View>
 
-        <Text style={styles.footerText} allowFontScaling={false}>
-          More recent places
-        </Text>
+            <Text style={styles.footerText} allowFontScaling={false}>
+              More recent places
+            </Text>
+          </>
+        )}
 
         <View style={styles.keyboardSpacer} />
       </ScrollView>
@@ -459,35 +682,52 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   loadingText: {
-    marginTop: 10,
-    marginLeft: 36,
+    marginTop: 14,
     fontFamily: FONTS.regular,
     fontSize: 13,
     color: '#6B7280',
   },
-  suggestionsCard: {
-    marginTop: 10,
-    marginLeft: 36,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
+  resultsList: {
+    marginTop: 14,
   },
-  suggestionRow: {
+  resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: '#EEF2F6',
   },
-  suggestionText: {
-    flex: 1,
+  resultRowLast: {
+    borderBottomWidth: 0,
+  },
+  resultLeft: {
+    width: 54,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  resultDistance: {
+    marginTop: 4,
     fontFamily: FONTS.regular,
-    color: '#111827',
-    fontSize: 14,
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  resultTextWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+  resultName: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#0F172A',
+  },
+  resultAddress: {
+    marginTop: 2,
+    fontFamily: FONTS.regular,
+    fontSize: 13,
+    color: '#94A3B8',
+  },
+  favoriteButton: {
+    padding: 4,
   },
   pillRow: {
     flexDirection: 'row',

@@ -11,11 +11,15 @@ export type RootStackParamList = {
     | {
         pickedLocation?: string;
         pickedTarget?: 'current' | 'destination';
+        pickedLatitude?: number;
+        pickedLongitude?: number;
       }
     | undefined;
   MapPicker: {
     target: 'current' | 'destination';
     initialQuery?: string;
+    initialLatitude?: number;
+    initialLongitude?: number;
   };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;
