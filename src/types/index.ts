@@ -71,3 +71,15 @@ export interface SavedRecentPlace {
   placeId?: string;
   savedAt: number;
 }
+
+export interface RideLocation {
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface CaretakerMarker {
+  id: string;
+  latitude: number;
+  longitude: number;
+}

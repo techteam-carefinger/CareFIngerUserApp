@@ -21,6 +21,18 @@ export type RootStackParamList = {
     initialLatitude?: number;
     initialLongitude?: number;
   };
+  RideBooking: {
+    pickup: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    drop: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+  };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;
 };

@@ -84,6 +84,12 @@ const parseAddressParts = (address: string) => {
   };
 };
 
+const scrollInputToStart = (inputRef: React.RefObject<TextInput | null>) => {
+  requestAnimationFrame(() => {
+    inputRef.current?.setNativeProps({selection: {start: 0, end: 0}});
+  });
+};
+
 export function LocationSearchScreen({navigation, route}: Props) {
   const [locationSearch, setLocationSearch] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState<PlaceResult[]>([]);
@@ -95,6 +101,11 @@ export function LocationSearchScreen({navigation, route}: Props) {
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [recentPlaces, setRecentPlaces] = useState<SavedRecentPlace[]>([]);
   const pickupCoordsRef = useRef<LatLng | null>(null);
+  const pickupFullRef = useRef('');
+  const destinationFullRef = useRef('');
+  const destinationCoordsRef = useRef<LatLng | null>(null);
+  const pickupInputRef = useRef<TextInput | null>(null);
+  const destinationInputRef = useRef<TextInput | null>(null);
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destinationFetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCurrentFetchRef = useRef(false);
@@ -133,6 +144,50 @@ export function LocationSearchScreen({navigation, route}: Props) {
     [loadRecentPlaces],
   );
 
+  const navigateToBooking = useCallback(
+    (dropCoords: LatLng, dropAddress: string) => {
+      const pickupCoords = pickupCoordsRef.current;
+      if (!pickupCoords) {
+        return;
+      }
+
+      const pickupAddress = pickupFullRef.current.trim() || locationSearch.trim();
+      const resolvedDropAddress =
+        dropAddress.trim() || destinationFullRef.current.trim() || destination.trim();
+      if (!pickupAddress || !resolvedDropAddress) {
+        return;
+      }
+
+      navigation.navigate('RideBooking', {
+        pickup: {
+          address: pickupAddress,
+          latitude: pickupCoords.latitude,
+          longitude: pickupCoords.longitude,
+        },
+        drop: {
+          address: resolvedDropAddress,
+          latitude: dropCoords.latitude,
+          longitude: dropCoords.longitude,
+        },
+      });
+    },
+    [navigation, locationSearch, destination],
+  );
+
+  const tryNavigateAfterPickup = useCallback(
+    (pickupCoords: LatLng) => {
+      const dropCoords = destinationCoordsRef.current;
+      if (!dropCoords) {
+        return;
+      }
+      navigateToBooking(
+        dropCoords,
+        destinationFullRef.current.trim() || destination.trim(),
+      );
+    },
+    [destination, navigateToBooking],
+  );
+
   // Seed pickup from captured home location. Also re-runs on focus so pickup
   // survives LocationSearch remounting after returning from MapPicker.
   useFocusEffect(
@@ -164,10 +219,12 @@ export function LocationSearchScreen({navigation, route}: Props) {
             return current;
           }
           skipNextCurrentFetchRef.current = true;
-          return (
+          const fullAddress =
             captured.address ||
-            `${captured.latitude.toFixed(6)}, ${captured.longitude.toFixed(6)}`
-          );
+            `${captured.latitude.toFixed(6)}, ${captured.longitude.toFixed(6)}`;
+          pickupFullRef.current = fullAddress;
+          scrollInputToStart(pickupInputRef);
+          return fullAddress;
         });
       })();
 
@@ -341,9 +398,28 @@ export function LocationSearchScreen({navigation, route}: Props) {
     if (fetchDebounceRef.current) {
       clearTimeout(fetchDebounceRef.current);
     }
+    pickupFullRef.current = result.description;
     setLocationSearch(result.description);
+    scrollInputToStart(pickupInputRef);
     setLocationSuggestions([]);
     setIsLocationAutocompleteLoading(false);
+
+    const coords =
+      result.latitude != null && result.longitude != null
+        ? {latitude: result.latitude, longitude: result.longitude}
+        : null;
+    if (coords) {
+      pickupCoordsRef.current = coords;
+      tryNavigateAfterPickup(coords);
+      return;
+    }
+
+    void fetchPlaceCoords(result.place_id).then(resolved => {
+      if (resolved) {
+        pickupCoordsRef.current = resolved;
+        tryNavigateAfterPickup(resolved);
+      }
+    });
   };
 
   const onSelectDestinationSuggestion = (result: PlaceResult) => {
@@ -351,7 +427,9 @@ export function LocationSearchScreen({navigation, route}: Props) {
     if (destinationFetchDebounceRef.current) {
       clearTimeout(destinationFetchDebounceRef.current);
     }
+    destinationFullRef.current = result.description;
     setDestination(result.description);
+    scrollInputToStart(destinationInputRef);
     setDestinationSuggestions([]);
     setIsDestinationAutocompleteLoading(false);
 
@@ -361,6 +439,7 @@ export function LocationSearchScreen({navigation, route}: Props) {
         : null;
 
     if (coords) {
+      destinationCoordsRef.current = coords;
       setDestinationCoords(coords);
     }
 
@@ -374,33 +453,50 @@ export function LocationSearchScreen({navigation, route}: Props) {
     });
 
     if (coords) {
+      navigateToBooking(coords, result.description);
       return;
     }
 
     void fetchPlaceCoords(result.place_id).then(resolved => {
       if (resolved) {
+        destinationCoordsRef.current = resolved;
         setDestinationCoords(resolved);
+        navigateToBooking(resolved, result.description);
       }
     });
   };
 
   const onSelectRecentPlace = (place: SavedRecentPlace) => {
     skipNextDestinationFetchRef.current = true;
+    destinationFullRef.current = place.address;
     setDestination(place.address);
+    scrollInputToStart(destinationInputRef);
     setDestinationSuggestions([]);
     if (place.latitude != null && place.longitude != null) {
-      setDestinationCoords({latitude: place.latitude, longitude: place.longitude});
+      const coords = {latitude: place.latitude, longitude: place.longitude};
+      destinationCoordsRef.current = coords;
+      setDestinationCoords(coords);
+      void saveRecentDrop({
+        address: place.address,
+        title: place.title,
+        subtitle: place.subtitle,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        placeId: place.placeId,
+      });
+      navigateToBooking(coords, place.address);
     } else {
+      destinationCoordsRef.current = null;
       setDestinationCoords(null);
+      void saveRecentDrop({
+        address: place.address,
+        title: place.title,
+        subtitle: place.subtitle,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        placeId: place.placeId,
+      });
     }
-    void saveRecentDrop({
-      address: place.address,
-      title: place.title,
-      subtitle: place.subtitle,
-      latitude: place.latitude,
-      longitude: place.longitude,
-      placeId: place.placeId,
-    });
   };
 
   const toggleFavorite = (placeId: string) => {
@@ -419,14 +515,24 @@ export function LocationSearchScreen({navigation, route}: Props) {
 
     if (pickedTarget === 'current') {
       skipNextCurrentFetchRef.current = true;
+      pickupFullRef.current = pickedLocation;
       setLocationSearch(pickedLocation);
+      scrollInputToStart(pickupInputRef);
       setLocationSuggestions([]);
+      if (pickedLatitude != null && pickedLongitude != null) {
+        pickupCoordsRef.current = {latitude: pickedLatitude, longitude: pickedLongitude};
+      }
     } else {
       skipNextDestinationFetchRef.current = true;
+      destinationFullRef.current = pickedLocation;
       setDestination(pickedLocation);
+      scrollInputToStart(destinationInputRef);
       setDestinationSuggestions([]);
       if (pickedLatitude != null && pickedLongitude != null) {
-        setDestinationCoords({latitude: pickedLatitude, longitude: pickedLongitude});
+        const coords = {latitude: pickedLatitude, longitude: pickedLongitude};
+        destinationCoordsRef.current = coords;
+        setDestinationCoords(coords);
+        navigateToBooking(coords, pickedLocation);
       }
       void saveRecentDrop({
         address: pickedLocation,
@@ -448,6 +554,7 @@ export function LocationSearchScreen({navigation, route}: Props) {
     route.params?.pickedLatitude,
     route.params?.pickedLongitude,
     saveRecentDrop,
+    navigateToBooking,
   ]);
 
   const forwardGeocodeWithBias = async (
@@ -484,21 +591,23 @@ export function LocationSearchScreen({navigation, route}: Props) {
     let latitude = destinationCoords?.latitude;
     let longitude = destinationCoords?.longitude;
 
-    if ((latitude == null || longitude == null) && destination.trim()) {
+    const destinationQuery = destinationFullRef.current.trim() || destination.trim();
+    if ((latitude == null || longitude == null) && destinationQuery) {
       const resolved = await forwardGeocodeWithBias(
-        destination.trim(),
+        destinationQuery,
         pickupCoordsRef.current,
       );
       if (resolved) {
         latitude = resolved.latitude;
         longitude = resolved.longitude;
         setDestinationCoords(resolved);
+        destinationCoordsRef.current = resolved;
       }
     }
 
     navigation.navigate('MapPicker', {
       target: 'destination',
-      initialQuery: destination.trim() || undefined,
+      initialQuery: destinationQuery || undefined,
       initialLatitude: latitude,
       initialLongitude: longitude,
     });
@@ -574,31 +683,42 @@ export function LocationSearchScreen({navigation, route}: Props) {
         <View style={styles.mainCard}>
           <View style={styles.row}>
             <View style={[styles.pinRing, styles.pickupRing]} />
-            <TextInput
-              value={locationSearch}
-              onChangeText={setLocationSearch}
-              placeholder="Pickup location"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              allowFontScaling={false}
-            />
+            <View style={styles.inputWrap}>
+              <TextInput
+                ref={pickupInputRef}
+                value={locationSearch}
+                onChangeText={text => {
+                  pickupFullRef.current = '';
+                  setLocationSearch(text);
+                }}
+                placeholder="Pickup location"
+                placeholderTextColor="#9CA3AF"
+                style={styles.input}
+                allowFontScaling={false}
+              />
+            </View>
           </View>
 
           <View style={styles.dottedLine} />
 
           <View style={styles.row}>
             <View style={[styles.pinRing, styles.dropRing]} />
-            <TextInput
-              value={destination}
-              onChangeText={text => {
-                setDestination(text);
-                setDestinationCoords(null);
-              }}
-              placeholder="Drop location"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              allowFontScaling={false}
-            />
+            <View style={styles.inputWrap}>
+              <TextInput
+                ref={destinationInputRef}
+                value={destination}
+                onChangeText={text => {
+                  destinationFullRef.current = '';
+                  destinationCoordsRef.current = null;
+                  setDestination(text);
+                  setDestinationCoords(null);
+                }}
+                placeholder="Drop location"
+                placeholderTextColor="#9CA3AF"
+                style={styles.input}
+                allowFontScaling={false}
+              />
+            </View>
           </View>
         </View>
 
@@ -717,6 +837,11 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 0,
+  },
+  inputWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   pinRing: {
     width: 18,
@@ -741,7 +866,7 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   input: {
-    flex: 1,
+    width: '100%',
     height: 42,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -749,6 +874,7 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 15,
     paddingVertical: 0,
+    paddingHorizontal: 0,
   },
   loadingText: {
     marginTop: 14,
