@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +16,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CustomButton, CustomInput} from '../components';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {authService} from '../services';
 
 const LOGO = require('../../assets/logo.png');
 
@@ -32,10 +34,10 @@ export function ProfileSetupScreen({navigation, route}: ProfileSetupScreenProps)
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [emergencyContact, setEmergencyContact] = useState(phoneNumber);
+  const [isSaving, setIsSaving] = useState(false);
 
   const trimmedFullName = fullName.trim();
   const trimmedEmail = email.trim();
-  const trimmedAddress = address.trim();
   const trimmedEmergencyContact = emergencyContact.trim();
 
   const fullNameError =
@@ -68,8 +70,8 @@ export function ProfileSetupScreen({navigation, route}: ProfileSetupScreenProps)
     setEmergencyContact(value.replace(/\D/g, '').slice(0, 10));
   };
 
-  const onSaveProfile = () => {
-    if (isSaveDisabled) {
+  const onSaveProfile = async () => {
+    if (isSaveDisabled || isSaving) {
       return;
     }
 
@@ -79,15 +81,22 @@ export function ProfileSetupScreen({navigation, route}: ProfileSetupScreenProps)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
-    console.log('Profile Saved', {
-      fullName: normalizedFullName,
-      email: trimmedEmail,
-      address: trimmedAddress,
-      emergencyContact: trimmedEmergencyContact,
-      phoneNumber,
-    });
-
-    navigation.replace('Home');
+    setIsSaving(true);
+    try {
+      await authService.updateProfile({
+        name: normalizedFullName,
+        email: trimmedEmail || undefined,
+      });
+      navigation.replace('Home');
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Could not save your profile. Please try again.';
+      Alert.alert('Profile setup failed', message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -169,7 +178,8 @@ export function ProfileSetupScreen({navigation, route}: ProfileSetupScreenProps)
           <CustomButton
             title="Save Profile"
             onPress={onSaveProfile}
-            disabled={isSaveDisabled}
+            disabled={isSaveDisabled || isSaving}
+            loading={isSaving}
             style={styles.saveButton}
           />
         </ScrollView>

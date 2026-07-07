@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1060647578958",
+    "project_id": "carefinger-920b8",
+    "storage_bucket": "carefinger-920b8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1060647578958:android:b695b2af7eb5eb4152821f",
+        "android_client_info": {
+          "package_name": "com.carefinger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyn3qP1JSQ6QHO6qnlhX54_e7GcQL_VmA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

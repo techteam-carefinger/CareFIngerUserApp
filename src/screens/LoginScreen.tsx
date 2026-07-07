@@ -1,8 +1,8 @@
 import React, {useMemo, useState} from 'react';
 import {
+  Alert,
   Image,
   Linking,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -14,6 +14,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CustomButton, CustomCheckbox, CustomInput} from '../components';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {authService} from '../services';
 
 const LOGO = require('../../assets/logo.png');
 
@@ -22,25 +23,39 @@ type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
 export function LoginScreen({navigation}: LoginScreenProps) {
   const [phone, setPhone] = useState('');
   const [keepSignedIn, setKeepSignedIn] = useState(true);
+  const [isSending, setIsSending] = useState(false);
 
   const isValidPhone = phone.length === 10;
   const showError = phone.length > 0 && phone.length < 10;
   const errorText = showError ? 'Enter valid 10-digit mobile number' : undefined;
 
-  const isSendOtpDisabled = !isValidPhone;
+  const isSendOtpDisabled = !isValidPhone || isSending;
 
   const onChangePhone = (text: string) => {
     const numericOnly = text.replace(/\D/g, '').slice(0, 10);
     setPhone(numericOnly);
   };
 
-  const onSendOtp = () => {
-    if (!isValidPhone) {
+  const onSendOtp = async () => {
+    if (!isValidPhone || isSending) {
       return;
     }
-    navigation.navigate('OtpVerification', {
-      phoneNumber: phone,
-    });
+
+    setIsSending(true);
+    try {
+      await authService.sendOtp(phone);
+      navigation.navigate('OtpVerification', {
+        phoneNumber: phone,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Could not send OTP. Please try again.';
+      Alert.alert('OTP failed', message);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const legalText = useMemo(
@@ -88,6 +103,7 @@ export function LoginScreen({navigation}: LoginScreenProps) {
             title="Send OTP"
             onPress={onSendOtp}
             disabled={isSendOtpDisabled}
+            loading={isSending}
             style={styles.sendOtpButton}
           />
         </View>
@@ -98,9 +114,6 @@ export function LoginScreen({navigation}: LoginScreenProps) {
             onToggle={() => setKeepSignedIn(current => !current)}
             label="Keep me signed in"
           />
-          <Pressable onPress={() => console.log('Forgot password clicked')}>
-            <Text style={styles.forgotPassword}>Forgot Password?</Text>
-          </Pressable>
         </View>
 
         <Text style={styles.footerText}>
@@ -202,11 +215,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  forgotPassword: {
-    fontFamily: FONTS.medium,
-    color: COLORS.link,
-    fontSize: 16,
   },
   footerText: {
     marginTop: 'auto',

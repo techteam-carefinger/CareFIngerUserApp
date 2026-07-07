@@ -1,2 +1,3 @@
-// API clients and service modules should be exported from here.
-export {};
+export {api, ApiError} from './api';
+export {authService} from './auth';
+export {storage} from './storage';

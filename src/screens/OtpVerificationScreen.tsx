@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +14,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CustomButton, OTPInput} from '../components';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {authService} from '../services';
 
 type OtpVerificationScreenProps = NativeStackScreenProps<
   RootStackParamList,
@@ -37,6 +39,8 @@ export function OtpVerificationScreen({
   const {phoneNumber} = route.params;
   const [otp, setOtp] = useState('');
   const [countdown, setCountdown] = useState(INITIAL_TIMER_SECONDS);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -64,32 +68,51 @@ export function OtpVerificationScreen({
     setOtp(nextOtp.replace(/\D/g, '').slice(0, OTP_LENGTH));
   };
 
-  const onVerify = () => {
-    if (!isOtpValid) {
+  const onVerify = async () => {
+    if (!isOtpValid || isVerifying) {
       return;
     }
 
-    // This would come from your OTP verification API response.
-    const verificationResponse = {
-      isNewUser: true,
-    };
+    setIsVerifying(true);
+    try {
+      const idToken = await authService.confirmOtp(otp);
+      const {isProfileComplete} = await authService.login(idToken);
 
-    console.log('OTP Verified', phoneNumber);
-    const {isNewUser} = verificationResponse;
-
-    if (isNewUser) {
-      navigation.replace('ProfileSetup', {phoneNumber});
-    } else {
-      navigation.replace('Home');
+      if (isProfileComplete) {
+        navigation.replace('Home');
+      } else {
+        navigation.replace('ProfileSetup', {phoneNumber});
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Invalid or expired OTP. Please try again.';
+      Alert.alert('Verification failed', message);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
-  const onResend = () => {
-    if (!canResend) {
+  const onResend = async () => {
+    if (!canResend || isResending) {
       return;
     }
-    setOtp('');
-    setCountdown(INITIAL_TIMER_SECONDS);
+
+    setIsResending(true);
+    try {
+      await authService.sendOtp(phoneNumber);
+      setOtp('');
+      setCountdown(INITIAL_TIMER_SECONDS);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Could not resend OTP. Please try again.';
+      Alert.alert('Resend failed', message);
+    } finally {
+      setIsResending(false);
+    }
   };
 
   return (
@@ -125,7 +148,8 @@ export function OtpVerificationScreen({
           <CustomButton
             title="Verify OTP"
             onPress={onVerify}
-            disabled={!isOtpValid}
+            disabled={!isOtpValid || isVerifying}
+            loading={isVerifying}
             style={styles.verifyButton}
           />
         </View>
