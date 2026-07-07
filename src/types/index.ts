@@ -83,3 +83,11 @@ export interface CaretakerMarker {
   latitude: number;
   longitude: number;
 }
+
+export interface CreateBookingData {
+  bookingId: string;
+  otp: number;
+  status: string;
+  nearbyProviders: number;
+  remainingMinutes: number;
+}
