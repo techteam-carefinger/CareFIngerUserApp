@@ -16,7 +16,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CustomButton, CustomInput} from '../components';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {authService} from '../services';
+import {authService, storage} from '../services';
 
 const LOGO = require('../../assets/logo.png');
 
@@ -86,6 +86,12 @@ export function ProfileSetupScreen({navigation, route}: ProfileSetupScreenProps)
       await authService.updateProfile({
         name: normalizedFullName,
         email: trimmedEmail || undefined,
+      });
+      // Address & emergency contact have no backend field; persist locally so
+      // later flows (e.g. booking) can prefill them.
+      await storage.setLocalProfile({
+        address: address.trim() || undefined,
+        emergencyContact: trimmedEmergencyContact,
       });
       navigation.replace('Home');
     } catch (error) {

@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import {ApiUser} from '../types';
+import {ApiUser, LocalProfile} from '../types';
 
 const TOKEN_KEY = '@carefinger/token';
 const USER_KEY = '@carefinger/user';
+const LOCAL_PROFILE_KEY = '@carefinger/localProfile';
 
 export const storage = {
   async setToken(token: string): Promise<void> {
@@ -30,10 +31,27 @@ export const storage = {
     }
   },
 
+  async setLocalProfile(profile: LocalProfile): Promise<void> {
+    await AsyncStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(profile));
+  },
+
+  async getLocalProfile(): Promise<LocalProfile | null> {
+    const raw = await AsyncStorage.getItem(LOCAL_PROFILE_KEY);
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as LocalProfile;
+    } catch {
+      return null;
+    }
+  },
+
   async clear(): Promise<void> {
     await Promise.all([
       AsyncStorage.removeItem(TOKEN_KEY),
       AsyncStorage.removeItem(USER_KEY),
+      AsyncStorage.removeItem(LOCAL_PROFILE_KEY),
     ]);
   },
 };

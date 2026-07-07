@@ -28,3 +28,12 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
 }
+
+/**
+ * Profile details collected during setup that the backend has no field for.
+ * Kept on-device so they can prefill later flows (e.g. booking address).
+ */
+export interface LocalProfile {
+  address?: string;
+  emergencyContact?: string;
+}
