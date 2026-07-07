@@ -21,7 +21,7 @@ type OtpVerificationScreenProps = NativeStackScreenProps<
   'OtpVerification'
 >;
 
-const OTP_LENGTH = 4;
+const OTP_LENGTH = 6;
 const INITIAL_TIMER_SECONDS = 30;
 
 const formatPhoneNumber = (phoneNumber: string) => {

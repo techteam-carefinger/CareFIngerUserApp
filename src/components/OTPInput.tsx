@@ -116,19 +116,21 @@ export function OTPInput({length = 4, value, onChange}: OTPInputProps) {
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 8,
   },
   input: {
-    width: 70,
-    height: 70,
-    borderRadius: 14,
+    width: 48,
+    borderRadius: 10,
     borderWidth: 1.25,
     borderColor: COLORS.primary,
     backgroundColor: COLORS.white,
-    fontSize: 27,
+    fontSize: 20,
     fontFamily: FONTS.medium,
     color: COLORS.textPrimary,
+    textAlign: 'center',
     textAlignVertical: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 12,
   },
 });
