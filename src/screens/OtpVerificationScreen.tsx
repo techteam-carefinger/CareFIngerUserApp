@@ -73,7 +73,7 @@ export function OtpVerificationScreen({
     }
 
     const unsubscribe = authService.subscribeAutoVerification(async idToken => {
-      if (hasAutoVerifiedRef.current || isVerifying) {
+      if (hasAutoVerifiedRef.current) {
         return;
       }
 
@@ -94,7 +94,7 @@ export function OtpVerificationScreen({
     });
 
     return unsubscribe;
-  }, [completeLogin, isVerifying]);
+  }, [completeLogin]);
 
   useEffect(() => {
     if (countdown <= 0) {

@@ -26,15 +26,75 @@ const toE164 = (phone: string): string => {
   return `${AUTH_CONFIG.defaultCountryCode}${digits}`;
 };
 
+const firebaseAuthMessage = (error: unknown, fallback: string): Error => {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as {code?: string}).code)
+      : '';
+
+  const messages: Record<string, string> = {
+    'auth/invalid-phone-number':
+      'Enter a valid 10-digit mobile number.',
+    'auth/missing-phone-number':
+      'Phone number is required.',
+    'auth/too-many-requests':
+      'Too many OTP requests. Please wait and try again.',
+    'auth/quota-exceeded':
+      'SMS quota exceeded. Please try again later.',
+    'auth/invalid-verification-code':
+      'Invalid OTP. Please check the code and try again.',
+    'auth/session-expired':
+      'OTP expired. Please request a new code.',
+    'auth/code-expired':
+      'OTP expired. Please request a new code.',
+    'auth/missing-verification-code':
+      'Enter the 6-digit OTP sent to your phone.',
+    'auth/network-request-failed':
+      'Network error. Check your connection and try again.',
+    'auth/app-not-authorized':
+      'This app is not authorized for phone login. Add the debug SHA-1 in Firebase.',
+    'auth/missing-client-identifier':
+      'This app is not authorized for phone login. Add the debug SHA-1 in Firebase.',
+    'auth/captcha-check-failed':
+      'Phone verification failed. Please try again.',
+    'auth/invalid-app-credential':
+      'Firebase Phone Auth is not set up for this app. Check SHA-1 fingerprints.',
+  };
+
+  if (messages[code]) {
+    return new Error(messages[code]);
+  }
+
+  if (error instanceof Error && error.message) {
+    return new Error(error.message);
+  }
+
+  return new Error(fallback);
+};
+
 export const authService = {
   /**
    * Triggers Firebase Phone Auth, sending an SMS OTP to the given number.
+   * The backend never receives this code — it only verifies the Firebase ID token.
    */
   async sendOtp(phone: string): Promise<void> {
     awaitingAutoVerification = true;
     await getAuth().signOut().catch(() => undefined);
-    const confirmation = await signInWithPhoneNumber(getAuth(), toE164(phone));
-    pendingConfirmation = confirmation;
+
+    try {
+      const confirmation = await signInWithPhoneNumber(
+        getAuth(),
+        toE164(phone),
+      );
+      pendingConfirmation = confirmation;
+    } catch (error) {
+      awaitingAutoVerification = false;
+      pendingConfirmation = null;
+      throw firebaseAuthMessage(
+        error,
+        'Could not send OTP. Please try again.',
+      );
+    }
   },
 
   hasPendingOtp(): boolean {
@@ -62,9 +122,10 @@ export const authService = {
       } catch (error) {
         awaitingAutoVerification = false;
         onError?.(
-          error instanceof Error
-            ? error
-            : new Error('Automatic OTP verification failed. Please enter the code.'),
+          firebaseAuthMessage(
+            error,
+            'Automatic OTP verification failed. Please enter the code.',
+          ),
         );
       }
     });
@@ -81,7 +142,15 @@ export const authService = {
       throw new Error('No OTP request in progress. Please resend the code.');
     }
 
-    await pendingConfirmation.confirm(code);
+    try {
+      await pendingConfirmation.confirm(code);
+    } catch (error) {
+      throw firebaseAuthMessage(
+        error,
+        'Invalid or expired OTP. Please try again.',
+      );
+    }
+
     awaitingAutoVerification = false;
     pendingConfirmation = null;
 

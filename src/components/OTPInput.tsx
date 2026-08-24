@@ -163,10 +163,10 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
   input: {
-    width: 48,
+    width: 44,
     borderRadius: 10,
     borderWidth: 1.25,
     borderColor: COLORS.primary,
