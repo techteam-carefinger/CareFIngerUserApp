@@ -6,7 +6,7 @@ import {
 
 import {AUTH_CONFIG} from '../config/env';
 import {ApiUser, LoginData} from '../types';
-import {api} from './api';
+import {api, ApiError} from './api';
 import {storage} from './storage';
 
 type PendingConfirmation = Awaited<ReturnType<typeof signInWithPhoneNumber>>;
@@ -25,6 +25,17 @@ const toE164 = (phone: string): string => {
   }
   return `${AUTH_CONFIG.defaultCountryCode}${digits}`;
 };
+
+const toLocalPhone = (phone: string): string =>
+  phone.replace(/\D/g, '').slice(-10);
+
+const isUserProfileComplete = (user: ApiUser): boolean =>
+  Boolean(user.name && user.name.trim().length >= 3);
+
+export type RestoredSession =
+  | {route: 'Login'}
+  | {route: 'Home'}
+  | {route: 'ProfileSetup'; phoneNumber: string};
 
 const firebaseAuthMessage = (error: unknown, fallback: string): Error => {
   const code =
@@ -168,14 +179,22 @@ export const authService = {
    */
   async login(
     idToken: string,
-    extra?: {name?: string; email?: string; lat?: number; lng?: number},
+    extra?: {
+      name?: string;
+      email?: string;
+      lat?: number;
+      lng?: number;
+      keepSignedIn?: boolean;
+    },
   ): Promise<LoginData> {
+    const {keepSignedIn = true, ...loginFields} = extra ?? {};
     const data = await api.post<LoginData>('/login', {
-      body: {idToken, ...extra},
+      body: {idToken, ...loginFields},
     });
 
     await storage.setToken(data.token);
     await storage.setUser(data.user);
+    await storage.setKeepSignedIn(keepSignedIn);
 
     return data;
   },
@@ -204,6 +223,57 @@ export const authService = {
     const user = await api.post<ApiUser>('/me', {auth: true});
     await storage.setUser(user);
     return user;
+  },
+
+  /**
+   * Restores the last session so a relaunch can skip Login when the user is
+   * still signed in. Invalid tokens send the user back to Login.
+   */
+  async restoreSession(): Promise<RestoredSession> {
+    const token = await storage.getToken();
+    if (!token) {
+      return {route: 'Login'};
+    }
+
+    const keepSignedIn = await storage.getKeepSignedIn();
+    if (keepSignedIn === false) {
+      await this.logout();
+      return {route: 'Login'};
+    }
+
+    const cachedUser = await storage.getUser();
+
+    try {
+      const user = await this.me();
+      if (isUserProfileComplete(user)) {
+        return {route: 'Home'};
+      }
+      return {
+        route: 'ProfileSetup',
+        phoneNumber: toLocalPhone(user.phoneNumber),
+      };
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        await this.logout();
+        return {route: 'Login'};
+      }
+
+      if (cachedUser && isUserProfileComplete(cachedUser)) {
+        return {route: 'Home'};
+      }
+
+      if (cachedUser?.phoneNumber) {
+        return {
+          route: 'ProfileSetup',
+          phoneNumber: toLocalPhone(cachedUser.phoneNumber),
+        };
+      }
+
+      return {route: 'Home'};
+    }
   },
 
   async logout(): Promise<void> {

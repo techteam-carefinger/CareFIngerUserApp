@@ -37,7 +37,7 @@ export function OtpVerificationScreen({
   navigation,
   route,
 }: OtpVerificationScreenProps) {
-  const {phoneNumber} = route.params;
+  const {phoneNumber, keepSignedIn = true} = route.params;
   const [otp, setOtp] = useState('');
   const [countdown, setCountdown] = useState(INITIAL_TIMER_SECONDS);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -46,7 +46,9 @@ export function OtpVerificationScreen({
 
   const completeLogin = useCallback(
     async (idToken: string) => {
-      const {isProfileComplete} = await authService.login(idToken);
+      const {isProfileComplete} = await authService.login(idToken, {
+        keepSignedIn,
+      });
 
       if (isProfileComplete) {
         navigation.replace('Home');
@@ -54,7 +56,7 @@ export function OtpVerificationScreen({
         navigation.replace('ProfileSetup', {phoneNumber});
       }
     },
-    [navigation, phoneNumber],
+    [keepSignedIn, navigation, phoneNumber],
   );
 
   const {restartListener} = useOtpAutoRead({

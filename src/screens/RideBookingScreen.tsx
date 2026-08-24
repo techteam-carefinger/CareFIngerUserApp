@@ -1,14 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -27,21 +24,6 @@ const GOOGLE_MAPS_API_KEY: string = 'AIzaSyBE3GNStuB23c1ZT8j9C2tfFuFFue4NY4U';
 const THEME = '#0F8A9D';
 const PICKUP_COLOR = '#1E9E5A';
 const DROP_COLOR = '#D9642A';
-
-type RideOption = {
-  id: string;
-  title: string;
-  subtitle: string;
-  eta: string;
-  dropTime: string;
-  price: number;
-  originalPrice?: number;
-  badge?: string;
-};
-
-const formatPrice = (price: number) => (price === 0 ? 'Free' : `₹${price}`);
-
-const PAID_OPTION_IDS = new Set(['min-care-service', 'min-care-premium']);
 
 const decodePolyline = (encoded: string): LatLng[] => {
   const points: LatLng[] = [];
@@ -121,66 +103,17 @@ const regionFromLocations = (pickup: LatLng, drop: LatLng): Region => {
   };
 };
 
-const formatDropTime = () => {
-  const date = new Date(Date.now() + 18 * 60 * 1000);
-  return date.toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-};
-
 export function RideBookingScreen({navigation, route}: Props) {
   const {pickup, drop} = route.params;
-  const {height: windowHeight} = useWindowDimensions();
   const mapRef = useRef<MapView | null>(null);
-  const mapHeight = Math.round(windowHeight * 0.46);
 
   const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
   const [isRouteLoading, setIsRouteLoading] = useState(true);
-  const [selectedOptionId, setSelectedOptionId] = useState('caretaker-free');
-  const [rechargeOption, setRechargeOption] = useState<RideOption | null>(null);
 
   const caretakerBikes = useMemo(
     () => generateCaretakerBikes(pickup),
     [pickup.latitude, pickup.longitude],
   );
-
-  const dropTime = useMemo(() => formatDropTime(), []);
-
-  const rideOptions: RideOption[] = useMemo(
-    () => [
-      {
-        id: 'caretaker-free',
-        title: 'Caretaker free',
-        subtitle: 'Free caretaker rides',
-        eta: '3 mins away',
-        dropTime: `Drop ${dropTime}`,
-        price: 0,
-        badge: 'FASTEST',
-      },
-      {
-        id: 'min-care-service',
-        title: 'Care service for 30 min',
-        subtitle: 'Basic care assistance',
-        eta: '5 mins',
-        dropTime: `Drop ${dropTime}`,
-        price: 49,
-      },
-      {
-        id: 'min-care-premium',
-        title: 'Care service for 1 hr',
-        subtitle: 'Extended care support',
-        eta: '6 mins',
-        dropTime: `Drop ${dropTime}`,
-        price: 99,
-      },
-    ],
-    [dropTime],
-  );
-
-  const selectedOption =
-    rideOptions.find(option => option.id === selectedOptionId) ?? rideOptions[0];
 
   const initialRegion = useMemo(
     () => regionFromLocations(pickup, drop),
@@ -234,52 +167,19 @@ export function RideBookingScreen({navigation, route}: Props) {
     return () => clearTimeout(timer);
   }, [pickup, drop, caretakerBikes, routeCoords.length]);
 
-  const renderRideIcon = () => (
-    <View style={styles.careIconWrap}>
-      <Ionicons name="medkit-outline" size={24} color="#111827" />
-    </View>
-  );
-
-  const handleOptionPress = (option: RideOption) => {
-    if (PAID_OPTION_IDS.has(option.id)) {
-      setRechargeOption(option);
-      return;
-    }
-    setSelectedOptionId(option.id);
-  };
-
   const handleBookPress = () => {
-    if (PAID_OPTION_IDS.has(selectedOptionId)) {
-      setRechargeOption(selectedOption);
-      return;
-    }
-
     navigation.navigate('PickupConfirm', {
       pickup,
       drop,
-      serviceTitle: selectedOption.title,
-      planAmount: selectedOption.price,
-    });
-  };
-
-  const closeRechargeModal = () => setRechargeOption(null);
-
-  const goToRecharge = () => {
-    if (!rechargeOption) {
-      return;
-    }
-    const option = rechargeOption;
-    setRechargeOption(null);
-    navigation.navigate('Recharge', {
-      planTitle: option.title,
-      amount: option.price,
+      serviceTitle: 'Caretaker',
+      planAmount: 0,
     });
   };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.screen}>
-        <View style={[styles.mapWrap, {height: mapHeight}]}>
+        <View style={styles.mapWrap}>
           <MapView
             ref={mapRef}
             style={styles.map}
@@ -364,93 +264,13 @@ export function RideBookingScreen({navigation, route}: Props) {
             You get ₹20 off & 20 coins cashback!
           </Text>
 
-          <ScrollView
-            style={styles.optionsScroll}
-            contentContainerStyle={styles.optionsContent}
-            showsVerticalScrollIndicator={false}>
-            {rideOptions.map(option => {
-              const isSelected = option.id === selectedOptionId;
-              return (
-                <Pressable
-                  key={option.id}
-                  style={[styles.optionCard, isSelected && styles.optionCardSelected]}
-                  onPress={() => handleOptionPress(option)}>
-                  <View style={styles.optionLeft}>
-                    {renderRideIcon()}
-                    <View style={styles.optionTextWrap}>
-                      <View style={styles.optionTitleRow}>
-                        <Text style={styles.optionTitle} allowFontScaling={false}>
-                          {option.title}
-                        </Text>
-                        {option.badge ? (
-                          <View style={styles.fastestBadge}>
-                            <Text style={styles.fastestBadgeText} allowFontScaling={false}>
-                              {option.badge}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text style={styles.optionSubtitle} allowFontScaling={false}>
-                        {option.subtitle}
-                      </Text>
-                      <Text style={styles.optionEta} allowFontScaling={false}>
-                        {option.eta} • {option.dropTime}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.optionPriceWrap}>
-                    <Text style={styles.optionPrice} allowFontScaling={false}>
-                      {formatPrice(option.price)}
-                    </Text>
-                    {option.originalPrice ? (
-                      <Text style={styles.optionOriginalPrice} allowFontScaling={false}>
-                        ₹{option.originalPrice}
-                      </Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
           <Pressable style={styles.bookButton} onPress={handleBookPress}>
             <Text style={styles.bookButtonText} allowFontScaling={false}>
-              Book {selectedOption.title}
+              Book caretaker
             </Text>
           </Pressable>
         </View>
       </View>
-
-      <Modal
-        visible={rechargeOption != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeRechargeModal}>
-        <Pressable style={styles.modalOverlay} onPress={closeRechargeModal}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <View style={styles.modalIconWrap}>
-              <Ionicons name="wallet-outline" size={32} color="#0E7490" />
-            </View>
-            <Text style={styles.modalTitle} allowFontScaling={false}>
-              Recharge to proceed
-            </Text>
-            <Text style={styles.modalMessage} allowFontScaling={false}>
-              Please recharge ₹{rechargeOption?.price ?? 0} to book{' '}
-              {rechargeOption?.title ?? 'this care service'}.
-            </Text>
-            <Pressable style={styles.modalRechargeButton} onPress={goToRecharge}>
-              <Text style={styles.modalRechargeText} allowFontScaling={false}>
-                Recharge Now
-              </Text>
-            </Pressable>
-            <Pressable style={styles.modalCancelButton} onPress={closeRechargeModal}>
-              <Text style={styles.modalCancelText} allowFontScaling={false}>
-                Cancel
-              </Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -465,6 +285,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   mapWrap: {
+    flex: 1,
     width: '100%',
     backgroundColor: '#E5E7EB',
     overflow: 'hidden',
@@ -573,7 +394,6 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   bottomSheet: {
-    flex: 1,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
@@ -588,96 +408,7 @@ const styles = StyleSheet.create({
     color: '#16A34A',
     marginBottom: 10,
   },
-  optionsScroll: {
-    flex: 1,
-  },
-  optionsContent: {
-    paddingBottom: 8,
-  },
-  optionCard: {
-    borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  optionCardSelected: {
-    borderColor: '#1E3A8A',
-    backgroundColor: '#F8FAFF',
-  },
-  optionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
-  },
-  careIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 10,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  optionTextWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  optionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  optionTitle: {
-    fontFamily: FONTS.semiBold,
-    fontSize: 16,
-    color: '#111827',
-  },
-  fastestBadge: {
-    backgroundColor: '#DBEAFE',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  fastestBadgeText: {
-    fontFamily: FONTS.semiBold,
-    fontSize: 10,
-    color: '#1D4ED8',
-  },
-  optionSubtitle: {
-    marginTop: 2,
-    fontFamily: FONTS.regular,
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  optionEta: {
-    marginTop: 2,
-    fontFamily: FONTS.regular,
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  optionPriceWrap: {
-    alignItems: 'flex-end',
-  },
-  optionPrice: {
-    fontFamily: FONTS.bold,
-    fontSize: 18,
-    color: '#111827',
-  },
-  optionOriginalPrice: {
-    fontFamily: FONTS.regular,
-    fontSize: 12,
-    color: '#9CA3AF',
-    textDecorationLine: 'line-through',
-  },
   bookButton: {
-    marginTop: 10,
     backgroundColor: COLORS.primary,
     borderRadius: 10,
     height: 54,
@@ -688,64 +419,5 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bold,
     fontSize: 18,
     color: COLORS.white,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-    alignItems: 'center',
-  },
-  modalIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#ECFEFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontFamily: FONTS.semiBold,
-    fontSize: 20,
-    color: '#111827',
-    textAlign: 'center',
-  },
-  modalMessage: {
-    marginTop: 10,
-    fontFamily: FONTS.regular,
-    fontSize: 15,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  modalRechargeButton: {
-    marginTop: 24,
-    width: '100%',
-    height: 50,
-    borderRadius: 10,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalRechargeText: {
-    fontFamily: FONTS.semiBold,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  modalCancelButton: {
-    marginTop: 12,
-    paddingVertical: 8,
-  },
-  modalCancelText: {
-    fontFamily: FONTS.medium,
-    fontSize: 15,
-    color: '#6B7280',
   },
 });

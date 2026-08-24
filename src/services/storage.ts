@@ -4,6 +4,7 @@ import {ApiUser, CapturedLocation, LocalProfile, SavedRecentPlace} from '../type
 
 const TOKEN_KEY = '@carefinger/token';
 const USER_KEY = '@carefinger/user';
+const KEEP_SIGNED_IN_KEY = '@carefinger/keepSignedIn';
 const LOCAL_PROFILE_KEY = '@carefinger/localProfile';
 const LOCATION_KEY = '@carefinger/location';
 const RECENT_PLACES_KEY = '@carefinger/recentPlaces';
@@ -33,6 +34,18 @@ export const storage = {
     } catch {
       return null;
     }
+  },
+
+  async setKeepSignedIn(value: boolean): Promise<void> {
+    await AsyncStorage.setItem(KEEP_SIGNED_IN_KEY, value ? 'true' : 'false');
+  },
+
+  async getKeepSignedIn(): Promise<boolean | null> {
+    const raw = await AsyncStorage.getItem(KEEP_SIGNED_IN_KEY);
+    if (raw == null) {
+      return null;
+    }
+    return raw === 'true';
   },
 
   async setLocalProfile(profile: LocalProfile): Promise<void> {
@@ -104,6 +117,7 @@ export const storage = {
     await Promise.all([
       AsyncStorage.removeItem(TOKEN_KEY),
       AsyncStorage.removeItem(USER_KEY),
+      AsyncStorage.removeItem(KEEP_SIGNED_IN_KEY),
       AsyncStorage.removeItem(LOCAL_PROFILE_KEY),
       AsyncStorage.removeItem(LOCATION_KEY),
       AsyncStorage.removeItem(RECENT_PLACES_KEY),

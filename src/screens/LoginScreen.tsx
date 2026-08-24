@@ -45,6 +45,7 @@ export function LoginScreen({navigation}: LoginScreenProps) {
       await authService.sendOtp(phone);
       navigation.navigate('OtpVerification', {
         phoneNumber: phone,
+        keepSignedIn,
       });
     } catch (error) {
       const message =

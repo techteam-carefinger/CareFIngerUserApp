@@ -2,6 +2,7 @@ export type RootStackParamList = {
   Login: undefined;
   OtpVerification: {
     phoneNumber: string;
+    keepSignedIn?: boolean;
   };
   ProfileSetup: {
     phoneNumber: string;

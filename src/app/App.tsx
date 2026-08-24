@@ -1,5 +1,5 @@
-import React from 'react';
-import {StatusBar} from 'react-native';
+import React, {useEffect, useState} from 'react';
+import {ActivityIndicator, StatusBar, StyleSheet, View} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -24,21 +24,58 @@ import {
   PrivacyPolicyScreen,
   TermsAndConditionsScreen,
 } from '../screens/TermsAndConditionsScreen';
+import {COLORS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {authService, RestoredSession} from '../services';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function App() {
+  const [session, setSession] = useState<RestoredSession | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const restored = await authService.restoreSession();
+      if (!cancelled) {
+        setSession(restored);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!session) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.bootScreen}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
       <NavigationContainer>
         <Stack.Navigator
           screenOptions={{headerShown: false}}
-          >
+          initialRouteName={session.route}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
-          <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
+          <Stack.Screen
+            name="ProfileSetup"
+            component={ProfileSetupScreen}
+            initialParams={{
+              phoneNumber:
+                session.route === 'ProfileSetup' ? session.phoneNumber : '',
+            }}
+          />
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Offers" component={OffersScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
@@ -65,5 +102,14 @@ function App() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  bootScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.background,
+  },
+});
 
 export default App;
