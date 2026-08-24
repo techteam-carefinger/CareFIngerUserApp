@@ -228,6 +228,9 @@ export function ProfileScreen() {
                 if (tab.label === 'Home') {
                   navigation.navigate('Home');
                 }
+                if (tab.label === 'Offers') {
+                  navigation.navigate('Offers');
+                }
               }}
             />
           ))}

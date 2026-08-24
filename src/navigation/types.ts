@@ -7,6 +7,7 @@ export type RootStackParamList = {
     phoneNumber: string;
   };
   Home: undefined;
+  Offers: undefined;
   Profile: undefined;
   ProfileDetails: undefined;
   MyCareServices: undefined;

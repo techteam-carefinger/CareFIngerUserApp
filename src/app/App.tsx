@@ -16,6 +16,7 @@ import {SearchingCaretakerScreen} from '../screens/SearchingCaretakerScreen';
 import {OtpVerificationScreen} from '../screens/OtpVerificationScreen';
 import {EditProfileFieldScreen} from '../screens/EditProfileFieldScreen';
 import {MyCareServicesScreen} from '../screens/MyCareServicesScreen';
+import {OffersScreen} from '../screens/OffersScreen';
 import {ProfileDetailsScreen} from '../screens/ProfileDetailsScreen';
 import {ProfileScreen} from '../screens/ProfileScreen';
 import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
@@ -39,6 +40,7 @@ function App() {
           <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
           <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="Offers" component={OffersScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="ProfileDetails" component={ProfileDetailsScreen} />
           <Stack.Screen name="MyCareServices" component={MyCareServicesScreen} />

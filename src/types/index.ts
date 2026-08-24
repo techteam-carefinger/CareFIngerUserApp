@@ -42,6 +42,31 @@ export interface LegalDocument {
 }
 
 /**
+ * Promotional discount returned by `POST /api/admin_link/discount_get`.
+ */
+export interface DiscountOffer {
+  _id: string;
+  name?: string;
+  title?: string;
+  code?: string;
+  description?: string;
+  discountType?: string;
+  discountValue?: number;
+  maxDiscountAmount?: number | null;
+  minimumBookingAmount?: number | null;
+  audienceType?: string;
+  totalUsageLimit?: number | null;
+  perUserUsageLimit?: number | null;
+  totalClaimLimit?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  claimedCount?: number;
+  remainingClaims?: number | null;
+  status?: string;
+  currentStatus?: string;
+}
+
+/**
  * Profile details collected during setup that the backend has no field for.
  * Kept on-device so they can prefill later flows (e.g. booking address).
  */

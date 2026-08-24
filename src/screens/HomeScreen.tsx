@@ -491,6 +491,9 @@ export function HomeScreen() {
               label={tab.label}
               active={tab.label === 'Home'}
               onPress={() => {
+                if (tab.label === 'Offers') {
+                  navigation.navigate('Offers');
+                }
                 if (tab.label === 'Profile') {
                   navigation.navigate('Profile');
                 }
