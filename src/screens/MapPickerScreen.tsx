@@ -281,6 +281,21 @@ export function MapPickerScreen({navigation, route}: Props) {
     const location =
       selectedAddress || `${region.latitude.toFixed(6)}, ${region.longitude.toFixed(6)}`;
 
+    if (route.params.returnTo === 'BookingConfirmed') {
+      navigation.navigate({
+        name: 'BookingConfirmed',
+        params: {
+          nextStop: {
+            address: location,
+            latitude: region.latitude,
+            longitude: region.longitude,
+          },
+        },
+        merge: true,
+      });
+      return;
+    }
+
     navigation.navigate({
       name: 'LocationSearch',
       params: {

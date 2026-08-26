@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -18,29 +19,17 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {ApiError, bookingService, storage} from '../services';
+import {ApiError, bookingService, getBookingOffer, PAID_RATE_PER_MINUTE, storage} from '../services';
 import {CaretakerMarker, CurrentBooking} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SearchingCaretaker'>;
 
 const POLL_INTERVAL_MS = 3000;
-const AUTO_CONFIRM_DELAY_MS = 2000;
+const OFFER_DELAY_MS = 1200;
 const DEFAULT_RECHARGE_AMOUNT = 49;
-
-// DEBUG: remove before release — skip API and open confirmed screen for UI testing.
-const DEBUG_NAVIGATE_TO_CONFIRMED = true;
 
 const isNoActivePlanError = (message: string) =>
   message.toLowerCase().includes('no active plan');
-
-const ACCEPTED_STATUSES = new Set([
-  'accepted',
-  'ongoing',
-  'in_progress',
-  'started',
-  'active',
-  'assigned',
-]);
 
 const seededRandom = (seed: number) => {
   const x = Math.sin(seed) * 10000;
@@ -61,21 +50,15 @@ const generateCaretakerMarkers = (
     };
   });
 
-const isBookingAccepted = (booking: {status?: string; providerId?: string | null}) => {
-  const status = booking.status?.toLowerCase() ?? '';
-  if (ACCEPTED_STATUSES.has(status)) {
-    return true;
-  }
-  return Boolean(booking.providerId);
-};
-
 const toConfirmedParams = (
   booking: CurrentBooking,
   pickup: {address: string; latitude: number; longitude: number},
   fallbackOtp = 0,
+  drop?: {address: string; latitude: number; longitude: number},
 ) => ({
   bookingId: booking.bookingId,
   pickup,
+  drop,
   otp: booking.otp ?? fallbackOtp,
   providerName: booking.providerName ?? 'Caretaker',
   providerRating: booking.providerRating ?? 4.7,
@@ -84,10 +67,16 @@ const toConfirmedParams = (
   etaMinutes: booking.etaMinutes ?? 6,
   providerLatitude: booking.providerLat ?? pickup.latitude + 0.004,
   providerLongitude: booking.providerLng ?? pickup.longitude + 0.004,
+  remainingMinutes: booking.remainingMinutes,
 });
 
+const formatRate = (rate: number) => {
+  const rounded = Math.round(rate * 100) / 100;
+  return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(2);
+};
+
 export function SearchingCaretakerScreen({navigation, route}: Props) {
-  const {latitude, longitude, address, planTitle, planAmount} = route.params;
+  const {latitude, longitude, address, planTitle, planAmount, drop} = route.params;
   const {height: windowHeight} = useWindowDimensions();
   const mapHeight = Math.round(windowHeight * 0.52);
 
@@ -95,11 +84,25 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   const [nearbyProviders, setNearbyProviders] = useState(route.params.nearbyProviders ?? 5);
   const [userName, setUserName] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [paidOffer, setPaidOffer] = useState<{ratePerMinute: number} | null>(null);
   const isCancellingRef = useRef(false);
+  const isRetryingRef = useRef(false);
   const hasAcceptedRef = useRef(false);
   const isCreatingBookingRef = useRef(false);
+  const offerHandledRef = useRef(false);
   const bookingIdRef = useRef(route.params.bookingId ?? '');
-  const bookingOtpRef = useRef(0);
+  const bookingOtpRef = useRef(route.params.otp ?? 0);
+  const pendingBookingRef = useRef<CurrentBooking | null>(
+    route.params.bookingId
+      ? {
+          bookingId: route.params.bookingId,
+          status: 'searching',
+          otp: route.params.otp,
+          remainingMinutes: route.params.remainingMinutes,
+        }
+      : null,
+  );
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -125,51 +128,12 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   }, []);
 
   useEffect(() => {
-    if (!DEBUG_NAVIGATE_TO_CONFIRMED) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (hasAcceptedRef.current) {
-        return;
-      }
-      hasAcceptedRef.current = true;
-      navigation.replace(
-        'BookingConfirmed',
-        toConfirmedParams(
-          {
-            bookingId: 'debug-booking',
-            status: 'accepted',
-            otp: 7748,
-            providerName: 'Golu Meena',
-            providerRating: 4.7,
-            vehicleNumber: 'MP04QW1742',
-            vehicleModel: 'HERO HF',
-            etaMinutes: 6,
-            providerLat: latitude + 0.004,
-            providerLng: longitude + 0.004,
-          },
-          {address, latitude, longitude},
-          7748,
-        ),
-      );
-    }, AUTO_CONFIRM_DELAY_MS);
-
-    return () => clearTimeout(timer);
-  }, [address, latitude, longitude, navigation]);
-
-  useEffect(() => {
-    if (DEBUG_NAVIGATE_TO_CONFIRMED) {
-      return;
-    }
-
     if (bookingId || isCreatingBookingRef.current) {
       return;
     }
 
     isCreatingBookingRef.current = true;
     let cancelled = false;
-    let confirmTimer: ReturnType<typeof setTimeout> | null = null;
 
     void (async () => {
       try {
@@ -184,26 +148,14 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
         setBookingId(booking.bookingId);
         bookingIdRef.current = booking.bookingId;
         bookingOtpRef.current = booking.otp;
-        setNearbyProviders(Math.max(booking.nearbyProviders, 5));
-
-        confirmTimer = setTimeout(() => {
-          if (cancelled || hasAcceptedRef.current) {
-            return;
-          }
-          hasAcceptedRef.current = true;
-          navigation.replace(
-            'BookingConfirmed',
-            toConfirmedParams(
-              {
-                bookingId: booking.bookingId,
-                status: 'accepted',
-                otp: booking.otp,
-              },
-              {address, latitude, longitude},
-              booking.otp,
-            ),
-          );
-        }, AUTO_CONFIRM_DELAY_MS);
+        setNearbyProviders(Math.max(booking.nearbyProviders ?? 0, 5));
+        pendingBookingRef.current = {
+          bookingId: booking.bookingId,
+          status: booking.status,
+          otp: booking.otp,
+          nearbyProviders: booking.nearbyProviders,
+          remainingMinutes: booking.remainingMinutes,
+        };
       } catch (error) {
         if (cancelled) {
           return;
@@ -230,9 +182,6 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
 
     return () => {
       cancelled = true;
-      if (confirmTimer) {
-        clearTimeout(confirmTimer);
-      }
     };
   }, [address, bookingId, latitude, longitude, navigation, planAmount, planTitle]);
 
@@ -249,26 +198,63 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     return () => animation.stop();
   }, [pulse]);
 
-  const handleAccepted = useCallback(
-    (booking: CurrentBooking) => {
+  const goToConfirmed = useCallback(() => {
+    if (hasAcceptedRef.current) {
+      return;
+    }
+    hasAcceptedRef.current = true;
+    const snapshot = pendingBookingRef.current ?? {
+      bookingId: bookingIdRef.current,
+      status: 'accepted',
+      otp: bookingOtpRef.current,
+    };
+    navigation.replace(
+      'BookingConfirmed',
+      toConfirmedParams(
+        snapshot,
+        {address, latitude, longitude},
+        bookingOtpRef.current,
+        drop,
+      ),
+    );
+  }, [address, drop, latitude, longitude, navigation]);
+
+  const applyOffer = useCallback(
+    (offer: {isFree: boolean; ratePerMinute: number}) => {
       if (hasAcceptedRef.current) {
         return;
       }
-      hasAcceptedRef.current = true;
-      navigation.replace(
-        'BookingConfirmed',
-        toConfirmedParams(
-          booking,
-          {address, latitude, longitude},
-          bookingOtpRef.current,
-        ),
-      );
+      if (offer.isFree) {
+        goToConfirmed();
+        return;
+      }
+      setPaidOffer({
+        ratePerMinute: offer.ratePerMinute || PAID_RATE_PER_MINUTE,
+      });
     },
-    [address, latitude, longitude, navigation],
+    [goToConfirmed],
   );
 
   useEffect(() => {
-    if (DEBUG_NAVIGATE_TO_CONFIRMED || !bookingId) {
+    if (!bookingId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (offerHandledRef.current || hasAcceptedRef.current) {
+        return;
+      }
+      offerHandledRef.current = true;
+      applyOffer(
+        route.params.offer ?? getBookingOffer(pendingBookingRef.current),
+      );
+    }, OFFER_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [applyOffer, bookingId, route.params.offer]);
+
+  useEffect(() => {
+    if (!bookingId) {
       return;
     }
 
@@ -280,8 +266,11 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
         if (cancelled || !booking) {
           return;
         }
-        if (booking.bookingId === bookingId && isBookingAccepted(booking)) {
-          handleAccepted(booking);
+        if (booking.bookingId === bookingIdRef.current) {
+          pendingBookingRef.current = booking;
+          if (booking.otp) {
+            bookingOtpRef.current = booking.otp;
+          }
         }
       } catch {
         // Keep polling while the search screen is visible.
@@ -297,7 +286,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bookingId, handleAccepted]);
+  }, [bookingId]);
 
   const resolveBookingIdForCancel = useCallback(async () => {
     if (bookingIdRef.current) {
@@ -362,6 +351,80 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     ]);
   }, [cancelSearch]);
 
+  const confirmPaidOffer = useCallback(() => {
+    setPaidOffer(null);
+    goToConfirmed();
+  }, [goToConfirmed]);
+
+  const retryForFree = useCallback(async () => {
+    if (isRetryingRef.current || isCancellingRef.current) {
+      return;
+    }
+
+    isRetryingRef.current = true;
+    setIsRetrying(true);
+    setPaidOffer(null);
+
+    try {
+      const activeBookingId = await resolveBookingIdForCancel();
+      if (activeBookingId) {
+        await bookingService
+          .cancelBooking(activeBookingId, 'Retry for free service')
+          .catch(() => undefined);
+      }
+
+      hasAcceptedRef.current = false;
+      offerHandledRef.current = true;
+
+      const booking = await bookingService.createBooking({
+        lat: latitude,
+        lng: longitude,
+        address,
+      });
+
+      setBookingId(booking.bookingId);
+      bookingIdRef.current = booking.bookingId;
+      bookingOtpRef.current = booking.otp;
+      pendingBookingRef.current = {
+        bookingId: booking.bookingId,
+        status: booking.status,
+        otp: booking.otp,
+        nearbyProviders: booking.nearbyProviders,
+        remainingMinutes: booking.remainingMinutes,
+      };
+      setNearbyProviders(Math.max(booking.nearbyProviders ?? 0, 5));
+
+      await new Promise(resolve => setTimeout(resolve, OFFER_DELAY_MS));
+      applyOffer(getBookingOffer(booking));
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Could not retry for a free ride. Please try again.';
+      if (isNoActivePlanError(message)) {
+        navigation.replace('Recharge', {
+          planTitle: planTitle ?? 'Active care plan',
+          amount:
+            planAmount && planAmount > 0 ? planAmount : DEFAULT_RECHARGE_AMOUNT,
+        });
+        return;
+      }
+      Alert.alert('Retry failed', message);
+    } finally {
+      isRetryingRef.current = false;
+      setIsRetrying(false);
+    }
+  }, [
+    address,
+    applyOffer,
+    latitude,
+    longitude,
+    navigation,
+    planAmount,
+    planTitle,
+    resolveBookingIdForCancel,
+  ]);
+
   const ringScale = (index: number) =>
     pulse.interpolate({
       inputRange: [0, 1],
@@ -392,10 +455,12 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
             <Ionicons name="medkit" size={28} color={COLORS.white} />
           </View>
           <Text style={styles.statusTitle} allowFontScaling={false}>
-            Searching caretaker...
+            {isRetrying ? 'Trying for a free ride...' : 'Searching caretaker...'}
           </Text>
           <Text style={styles.statusSubtitle} allowFontScaling={false}>
-            This may take a few seconds...
+            {isRetrying
+              ? 'Checking if this one is free...'
+              : 'This may take a few seconds...'}
           </Text>
         </View>
 
@@ -465,6 +530,46 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
           Pickup: {address}
         </Text>
       </View>
+
+      <Modal
+        visible={paidOffer != null}
+        transparent
+        animationType="fade"
+        onRequestClose={confirmPaidOffer}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="pricetag" size={28} color={COLORS.white} />
+            </View>
+            <Text style={styles.modalTitle} allowFontScaling={false}>
+              CareFinger just @ ₹{formatRate(paidOffer?.ratePerMinute ?? PAID_RATE_PER_MINUTE)}/min
+            </Text>
+            <Text style={styles.modalMessage} allowFontScaling={false}>
+              A caretaker is ready. Confirm to continue, or retry for a free ride.
+            </Text>
+            <Pressable
+              style={styles.modalConfirmButton}
+              onPress={confirmPaidOffer}
+              disabled={isRetrying}>
+              <Text style={styles.modalConfirmText} allowFontScaling={false}>
+                Confirm
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.modalRetryButton}
+              onPress={() => void retryForFree()}
+              disabled={isRetrying}>
+              {isRetrying ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Text style={styles.modalRetryText} allowFontScaling={false}>
+                  Retry for free
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -613,5 +718,71 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  modalIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: FONTS.bold,
+    fontSize: 20,
+    color: '#111827',
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  modalMessage: {
+    marginTop: 10,
+    fontFamily: FONTS.regular,
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalConfirmButton: {
+    marginTop: 24,
+    width: '100%',
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalConfirmText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  modalRetryButton: {
+    marginTop: 12,
+    width: '100%',
+    height: 50,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalRetryText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: COLORS.primary,
   },
 });

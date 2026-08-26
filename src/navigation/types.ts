@@ -29,6 +29,7 @@ export type RootStackParamList = {
     initialQuery?: string;
     initialLatitude?: number;
     initialLongitude?: number;
+    returnTo?: 'BookingConfirmed';
   };
   RideBooking: {
     pickup: {
@@ -66,12 +67,28 @@ export type RootStackParamList = {
     address: string;
     bookingId?: string;
     nearbyProviders?: number;
+    otp?: number;
     planTitle?: string;
     planAmount?: number;
+    offer?: {
+      isFree: boolean;
+      ratePerMinute: number;
+    };
+    remainingMinutes?: number;
+    drop?: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
   };
   BookingConfirmed: {
     bookingId: string;
     pickup: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    drop?: {
       address: string;
       latitude: number;
       longitude: number;
@@ -84,6 +101,18 @@ export type RootStackParamList = {
     etaMinutes: number;
     providerLatitude: number;
     providerLongitude: number;
+    remainingMinutes?: number;
+    nextStop?: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+  };
+  ServiceComplete: {
+    bookingId: string;
+    minutes: number;
+    ratePerMinute?: number;
+    customerName?: string;
   };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;

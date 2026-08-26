@@ -17,7 +17,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {storage} from '../services';
+import {ApiError, bookingService, getBookingOffer, storage} from '../services';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PickupConfirm'>;
 
@@ -25,6 +25,10 @@ type Coords = {latitude: number; longitude: number};
 
 const GOOGLE_MAPS_API_KEY: string = 'AIzaSyBE3GNStuB23c1ZT8j9C2tfFuFFue4NY4U';
 const PICKUP_COLOR = '#1E9E5A';
+const DEFAULT_RECHARGE_AMOUNT = 49;
+
+const isNoActivePlanError = (message: string) =>
+  message.toLowerCase().includes('no active plan');
 
 const regionFromCoords = (coords: Coords): Region => ({
   latitude: coords.latitude,
@@ -51,6 +55,7 @@ export function PickupConfirmScreen({navigation, route}: Props) {
   });
   const [selectedAddress, setSelectedAddress] = useState(pickup.address);
   const [isResolving, setIsResolving] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [hasLocationPermission, setHasLocationPermission] = useState(Platform.OS === 'ios');
 
   useEffect(() => {
@@ -159,6 +164,10 @@ export function PickupConfirmScreen({navigation, route}: Props) {
   };
 
   const onConfirmPickup = async () => {
+    if (isConfirming || isResolving) {
+      return;
+    }
+
     const token = await storage.getToken();
     if (!token) {
       Alert.alert('Login required', 'Please log in to book a caretaker.', [
@@ -168,20 +177,55 @@ export function PickupConfirmScreen({navigation, route}: Props) {
       return;
     }
 
-    void storage.setLocation({
-      latitude: selectedCoords.latitude,
-      longitude: selectedCoords.longitude,
-      address: selectedAddress,
-      capturedAt: Date.now(),
-    });
+    setIsConfirming(true);
+    try {
+      void storage.setLocation({
+        latitude: selectedCoords.latitude,
+        longitude: selectedCoords.longitude,
+        address: selectedAddress,
+        capturedAt: Date.now(),
+      });
 
-    navigation.replace('SearchingCaretaker', {
-      latitude: selectedCoords.latitude,
-      longitude: selectedCoords.longitude,
-      address: selectedAddress,
-      planTitle: route.params.serviceTitle,
-      planAmount: route.params.planAmount,
-    });
+      const booking = await bookingService.createBooking({
+        lat: selectedCoords.latitude,
+        lng: selectedCoords.longitude,
+        address: selectedAddress,
+      });
+
+      navigation.replace('SearchingCaretaker', {
+        latitude: selectedCoords.latitude,
+        longitude: selectedCoords.longitude,
+        address: selectedAddress,
+        bookingId: booking.bookingId,
+        nearbyProviders: booking.nearbyProviders ?? 5,
+        otp: booking.otp,
+        planTitle: route.params.serviceTitle,
+        planAmount: route.params.planAmount,
+        remainingMinutes: booking.remainingMinutes,
+        offer: getBookingOffer(booking),
+        drop,
+      });
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Could not create booking. Please try again.';
+
+      if (isNoActivePlanError(message)) {
+        navigation.navigate('Recharge', {
+          planTitle: route.params.serviceTitle || 'Active care plan',
+          amount:
+            route.params.planAmount && route.params.planAmount > 0
+              ? route.params.planAmount
+              : DEFAULT_RECHARGE_AMOUNT,
+        });
+        return;
+      }
+
+      Alert.alert('Booking failed', message);
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   const addressLineOne = selectedAddress.split(',')[0]?.trim() || selectedAddress;
@@ -251,12 +295,16 @@ export function PickupConfirmScreen({navigation, route}: Props) {
           </View>
 
           <Pressable
-            style={styles.confirmButton}
+            style={[styles.confirmButton, isConfirming && styles.confirmButtonDisabled]}
             onPress={() => void onConfirmPickup()}
-            disabled={isResolving}>
-            <Text style={styles.confirmButtonText} allowFontScaling={false}>
-              Confirm pickup
-            </Text>
+            disabled={isResolving || isConfirming}>
+            {isConfirming ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <Text style={styles.confirmButtonText} allowFontScaling={false}>
+                Confirm pickup
+              </Text>
+            )}
           </Pressable>
 
           <Text style={styles.serviceHint} allowFontScaling={false}>
@@ -405,6 +453,9 @@ const styles = StyleSheet.create({
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
   },
   confirmButtonText: {
     fontFamily: FONTS.bold,

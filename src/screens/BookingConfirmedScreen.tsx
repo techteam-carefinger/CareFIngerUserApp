@@ -1,5 +1,7 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  Alert,
+  Modal,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -16,15 +18,19 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {storage} from '../services';
+import {PAID_RATE_PER_MINUTE, storage} from '../services';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BookingConfirmed'>;
 
 type LatLng = {latitude: number; longitude: number};
+type Stop = {address: string; latitude: number; longitude: number};
+type ServicePhase = 'enroute' | 'ready' | 'active';
 
 const PICKUP_COLOR = '#1E9E5A';
+const DROP_COLOR = '#D9642A';
 const CARETAKER_COLOR = '#2563EB';
 const PICKUP_NEARBY_THRESHOLD_M = 80;
+const CARETAKER_ARRIVAL_DELAY_MS = 60 * 1000;
 
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
@@ -68,9 +74,25 @@ const formatPinDigits = (otp: number) => {
   return digits.split('');
 };
 
+const formatClock = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+const formatTotalTime = (startedAt: number, now: number) => {
+  const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes} Min ${String(seconds).padStart(2, '0')} Sec`;
+};
+
 export function BookingConfirmedScreen({navigation, route}: Props) {
   const {
     pickup,
+    drop,
     otp,
     providerName,
     providerRating,
@@ -79,13 +101,57 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     etaMinutes,
     providerLatitude,
     providerLongitude,
+    remainingMinutes,
   } = route.params;
   const {height: windowHeight} = useWindowDimensions();
-  const mapHeight = Math.round(windowHeight * 0.42);
+  const mapRef = useRef<MapView | null>(null);
   const [userCoords, setUserCoords] = useState<LatLng | null>(null);
   const [hasLocationPermission, setHasLocationPermission] = useState(Platform.OS !== 'android');
+  const [hasArrived, setHasArrived] = useState(false);
+  const [showArrivalPopup, setShowArrivalPopup] = useState(false);
+  const [phase, setPhase] = useState<ServicePhase>('enroute');
+  const [stops, setStops] = useState<Stop[]>(drop ? [drop] : []);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  const isServiceView = phase !== 'enroute';
+  const mapHeight = Math.round(windowHeight * (isServiceView ? 0.55 : 0.42));
+  const currentDestination = stops[stops.length - 1] ?? drop;
 
   const pinDigits = useMemo(() => formatPinDigits(otp), [otp]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setHasArrived(true);
+      setShowArrivalPopup(true);
+    }, CARETAKER_ARRIVAL_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'active' || startedAt == null) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [phase, startedAt]);
+
+  useEffect(() => {
+    const nextStop = route.params.nextStop;
+    if (!nextStop) {
+      return;
+    }
+    setStops(current => {
+      const alreadyAdded = current.some(
+        stop =>
+          stop.latitude === nextStop.latitude &&
+          stop.longitude === nextStop.longitude,
+      );
+      return alreadyAdded ? current : [...current, nextStop];
+    });
+    navigation.setParams({nextStop: undefined});
+  }, [navigation, route.params.nextStop]);
 
   useEffect(() => {
     void (async () => {
@@ -149,6 +215,9 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
   }, [pickup, userCoords]);
 
   const routeCoords = useMemo(() => {
+    if (isServiceView) {
+      return [pickup, ...stops];
+    }
     if (isAwayFromPickup && userCoords) {
       return [userCoords, pickup];
     }
@@ -156,15 +225,83 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
       {latitude: providerLatitude, longitude: providerLongitude},
       pickup,
     ];
-  }, [isAwayFromPickup, pickup, providerLatitude, providerLongitude, userCoords]);
+  }, [
+    isAwayFromPickup,
+    isServiceView,
+    pickup,
+    providerLatitude,
+    providerLongitude,
+    stops,
+    userCoords,
+  ]);
 
   const mapRegion: Region = useMemo(() => {
+    if (isServiceView) {
+      const points: LatLng[] = [pickup, ...stops];
+      if (points.length === 1 && currentDestination) {
+        points.push(currentDestination);
+      }
+      return regionFromCoords(points);
+    }
     const points: LatLng[] = [pickup, {latitude: providerLatitude, longitude: providerLongitude}];
     if (userCoords) {
       points.push(userCoords);
     }
     return regionFromCoords(points);
-  }, [pickup, providerLatitude, providerLongitude, userCoords]);
+  }, [
+    currentDestination,
+    isServiceView,
+    pickup,
+    providerLatitude,
+    providerLongitude,
+    stops,
+    userCoords,
+  ]);
+
+  useEffect(() => {
+    mapRef.current?.animateToRegion(mapRegion, 450);
+  }, [mapRegion]);
+
+  const handleAcknowledgeArrival = () => {
+    setShowArrivalPopup(false);
+    setPhase('ready');
+  };
+
+  const handleStartTimer = () => {
+    const timestamp = Date.now();
+    setStartedAt(timestamp);
+    setNow(timestamp);
+    setPhase('active');
+  };
+
+  const handleAddNextLocation = () => {
+    navigation.navigate('MapPicker', {
+      target: 'destination',
+      initialQuery: currentDestination?.address,
+      initialLatitude: currentDestination?.latitude,
+      initialLongitude: currentDestination?.longitude,
+      returnTo: 'BookingConfirmed',
+    });
+  };
+
+  const handleCompleteService = () => {
+    Alert.alert('Complete service?', 'Do you want to end this caretaker service?', [
+      {text: 'Cancel', style: 'cancel'},
+      {
+        text: 'Complete',
+        onPress: () => {
+          const billedMinutes = startedAt
+            ? Math.max(1, Math.ceil((Date.now() - startedAt) / 60000))
+            : 1;
+          navigation.replace('ServiceComplete', {
+            bookingId: route.params.bookingId,
+            minutes: billedMinutes,
+            ratePerMinute: PAID_RATE_PER_MINUTE,
+          });
+        },
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -185,6 +322,7 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
 
         <View style={[styles.mapWrap, {height: mapHeight}]}>
           <MapView
+            ref={mapRef}
             style={styles.map}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={mapRegion}
@@ -195,12 +333,14 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
             zoomEnabled
             rotateEnabled={false}
             pitchEnabled={false}>
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor="#111827"
-              strokeWidth={3}
-              lineDashPattern={[8, 8]}
-            />
+            {routeCoords.length > 1 ? (
+              <Polyline
+                coordinates={routeCoords}
+                strokeColor="#111827"
+                strokeWidth={3}
+                lineDashPattern={[8, 8]}
+              />
+            ) : null}
 
             <Marker coordinate={pickup} anchor={{x: 0.5, y: 0.5}}>
               <View style={styles.pickupMarker}>
@@ -208,20 +348,33 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
               </View>
             </Marker>
 
-            {isAwayFromPickup ? null : (
-              <Marker
-                coordinate={{latitude: providerLatitude, longitude: providerLongitude}}
-                anchor={{x: 0.5, y: 0.5}}>
-                <View style={styles.caretakerMarker}>
-                  <Ionicons name="navigate" size={18} color={COLORS.white} />
-                </View>
-              </Marker>
-            )}
+            {isServiceView
+              ? stops.map((stop, index) => (
+                  <Marker
+                    key={`${stop.latitude}-${stop.longitude}-${index}`}
+                    coordinate={stop}
+                    anchor={{x: 0.5, y: 1}}>
+                    <View style={styles.dropMarkerWrap}>
+                      <Ionicons name="location" size={36} color={DROP_COLOR} />
+                    </View>
+                  </Marker>
+                ))
+              : isAwayFromPickup
+                ? null
+                : (
+                    <Marker
+                      coordinate={{latitude: providerLatitude, longitude: providerLongitude}}
+                      anchor={{x: 0.5, y: 0.5}}>
+                      <View style={styles.caretakerMarker}>
+                        <Ionicons name="navigate" size={18} color={COLORS.white} />
+                      </View>
+                    </Marker>
+                  )}
           </MapView>
 
           <View style={styles.pickupLabel}>
             <Text style={styles.pickupLabelText} allowFontScaling={false}>
-              Pickup
+              {isServiceView ? 'Destination' : 'Pickup'}
             </Text>
             <Ionicons name="pencil" size={14} color="#6B7280" />
           </View>
@@ -240,7 +393,7 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
         </View>
 
         <View style={styles.sheet}>
-          {isAwayFromPickup ? (
+          {phase === 'enroute' && isAwayFromPickup ? (
             <View style={styles.sheetBanner}>
               <Text style={styles.sheetBannerText} allowFontScaling={false}>
                 Walk to your pickup-point
@@ -248,9 +401,61 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
             </View>
           ) : null}
 
+          {phase === 'ready' ? (
+            <View style={styles.servicePanel}>
+              <Text style={styles.destinationTitle} allowFontScaling={false}>
+                Head to destination
+              </Text>
+              <Text style={styles.destinationAddress} allowFontScaling={false}>
+                {currentDestination?.address || pickup.address}
+              </Text>
+              <Pressable style={styles.startTimerButton} onPress={handleStartTimer}>
+                <Ionicons name="play" size={18} color={COLORS.white} />
+                <Text style={styles.startTimerText} allowFontScaling={false}>
+                  Start timer
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {phase === 'active' ? (
+            <View style={styles.servicePanel}>
+              <View style={styles.timerPill}>
+                <Text style={styles.timerPillText} allowFontScaling={false}>
+                  Start Time : {startedAt ? formatClock(startedAt) : '--'}
+                  {'  '}
+                  Total Time : {startedAt ? formatTotalTime(startedAt, now) : '0 Min'}
+                  {remainingMinutes ? ` / ${remainingMinutes} Min` : ''}
+                </Text>
+              </View>
+              <Pressable style={styles.addLocationButton} onPress={handleAddNextLocation}>
+                <Text style={styles.addLocationText} allowFontScaling={false}>
+                  Add Next Location
+                </Text>
+                <View style={styles.addLocationIcon}>
+                  <Ionicons name="add" size={22} color={COLORS.white} />
+                </View>
+              </Pressable>
+              <Pressable style={styles.completeButton} onPress={handleCompleteService}>
+                <Text style={styles.completeButtonText} allowFontScaling={false}>
+                  Complete Service
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {phase === 'enroute' ? (
           <ScrollView showsVerticalScrollIndicator={false}>
             <Text style={styles.etaText} allowFontScaling={false}>
-              Pickup in <Text style={styles.etaHighlight}>{etaMinutes} mins</Text>
+              {hasArrived ? (
+                <>
+                  Caretaker has <Text style={styles.etaHighlight}>arrived</Text>
+                </>
+              ) : (
+                <>
+                  Pickup in <Text style={styles.etaHighlight}>{etaMinutes} mins</Text>
+                </>
+              )}
             </Text>
 
             <Text style={styles.pinTitle} allowFontScaling={false}>
@@ -316,8 +521,45 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
               </Pressable>
             </View>
           </ScrollView>
+          ) : null}
         </View>
       </View>
+
+      <Modal
+        visible={showArrivalPopup}
+        transparent
+        animationType="fade"
+        onRequestClose={handleAcknowledgeArrival}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="checkmark-circle" size={36} color={COLORS.white} />
+            </View>
+            <Text style={styles.modalTitle} allowFontScaling={false}>
+              Caretaker arrived
+            </Text>
+            <Text style={styles.modalMessage} allowFontScaling={false}>
+              Share OTP to start service
+            </Text>
+            <View style={styles.modalPinRow}>
+              {pinDigits.map((digit, index) => (
+                <View key={`${digit}-${index}`} style={styles.modalPinBox}>
+                  <Text style={styles.modalPinDigit} allowFontScaling={false}>
+                    {digit}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            <Pressable
+              style={styles.modalButton}
+              onPress={handleAcknowledgeArrival}>
+              <Text style={styles.modalButtonText} allowFontScaling={false}>
+                OK
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -377,6 +619,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: PICKUP_COLOR,
   },
+  dropMarkerWrap: {
+    alignItems: 'center',
+  },
   caretakerMarker: {
     width: 34,
     height: 34,
@@ -390,8 +635,7 @@ const styles = StyleSheet.create({
   pickupLabel: {
     position: 'absolute',
     top: 18,
-    left: '50%',
-    transform: [{translateX: -42}],
+    alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -465,6 +709,88 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.semiBold,
     fontSize: 16,
     color: COLORS.white,
+  },
+  servicePanel: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  destinationTitle: {
+    fontFamily: FONTS.bold,
+    fontSize: 18,
+    color: '#111827',
+  },
+  destinationAddress: {
+    fontFamily: FONTS.regular,
+    fontSize: 14,
+    color: '#4B5563',
+    lineHeight: 20,
+  },
+  startTimerButton: {
+    marginTop: 4,
+    height: 54,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  startTimerText: {
+    fontFamily: FONTS.bold,
+    fontSize: 18,
+    color: COLORS.white,
+  },
+  timerPill: {
+    borderWidth: 1.5,
+    borderColor: '#111827',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  timerPillText: {
+    fontFamily: FONTS.medium,
+    fontSize: 13,
+    color: '#111827',
+    textAlign: 'center',
+  },
+  addLocationButton: {
+    borderWidth: 1.5,
+    borderColor: '#111827',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  addLocationText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#111827',
+  },
+  addLocationIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeButton: {
+    borderWidth: 1.5,
+    borderColor: '#111827',
+    borderRadius: 999,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeButtonText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#111827',
   },
   etaText: {
     marginTop: 14,
@@ -614,5 +940,74 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.medium,
     fontSize: 14,
     color: '#111827',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  modalIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: PICKUP_COLOR,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: FONTS.bold,
+    fontSize: 22,
+    color: '#111827',
+    textAlign: 'center',
+  },
+  modalMessage: {
+    marginTop: 8,
+    fontFamily: FONTS.medium,
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+  },
+  modalPinRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 18,
+  },
+  modalPinBox: {
+    width: 46,
+    height: 52,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  modalPinDigit: {
+    fontFamily: FONTS.bold,
+    fontSize: 22,
+    color: '#111827',
+  },
+  modalButton: {
+    marginTop: 22,
+    width: '100%',
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonText: {
+    fontFamily: FONTS.semiBold,
+    fontSize: 16,
+    color: '#FFFFFF',
   },
 });

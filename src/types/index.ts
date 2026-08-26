@@ -117,6 +117,21 @@ export interface CreateBookingData {
   status: string;
   nearbyProviders: number;
   remainingMinutes: number;
+  isFree?: boolean;
+  isPaid?: boolean;
+  freeService?: boolean;
+  serviceType?: string;
+  fareType?: string;
+  chargeType?: string;
+  billingType?: string;
+  ratePerMinute?: number;
+  pricePerMinute?: number;
+  perMinuteCharge?: number;
+}
+
+export interface BookingOffer {
+  isFree: boolean;
+  ratePerMinute: number;
 }
 
 export interface CurrentBooking {
@@ -135,11 +150,24 @@ export interface CurrentBooking {
   providerLng?: number;
   etaMinutes?: number;
   nearbyProviders?: number;
+  remainingMinutes?: number;
+  isFree?: boolean;
+  isPaid?: boolean;
+  freeService?: boolean;
+  serviceType?: string;
+  fareType?: string;
+  ratePerMinute?: number;
+  pricePerMinute?: number;
 }
 
 export interface ConfirmedBookingParams {
   bookingId: string;
   pickup: {
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
+  drop?: {
     address: string;
     latitude: number;
     longitude: number;
