@@ -128,6 +128,7 @@ export type RootStackParamList = {
     minutes: number;
     ratePerMinute?: number;
     customerName?: string;
+    isFree?: boolean;
   };
   TermsAndConditions: undefined;
   PrivacyPolicy: undefined;

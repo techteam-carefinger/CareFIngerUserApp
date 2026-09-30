@@ -37,20 +37,24 @@ const formatServiceDate = () =>
   });
 
 export function ServiceCompleteScreen({navigation, route}: Props) {
-  const {minutes, ratePerMinute = PAID_RATE_PER_MINUTE} = route.params;
+  const {minutes, ratePerMinute = PAID_RATE_PER_MINUTE, isFree = false} = route.params;
   const billedMinutes = Math.max(1, Math.round(minutes));
+  const rate = isFree ? 0 : ratePerMinute;
   const [customerName, setCustomerName] = useState(route.params.customerName ?? '');
   const [experience, setExperience] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const invoice = useMemo(() => {
-    const subtotal = roundMoney(billedMinutes * ratePerMinute);
+    if (isFree) {
+      return {subtotal: 0, coupon: 0, membership: 0, gst: 0, total: 0};
+    }
+    const subtotal = roundMoney(billedMinutes * rate);
     const coupon = FIRST_SERVICE_COUPON;
     const membership = MEMBERSHIP_DISCOUNT;
     const gst = roundMoney(subtotal * GST_RATE);
     const total = roundMoney(Math.max(0, subtotal - coupon - membership + gst));
     return {subtotal, coupon, membership, gst, total};
-  }, [billedMinutes, ratePerMinute]);
+  }, [billedMinutes, isFree, rate]);
 
   useEffect(() => {
     if (customerName) {
@@ -165,7 +169,7 @@ export function ServiceCompleteScreen({navigation, route}: Props) {
               Calculation
             </Text>
             <Text style={styles.calculationText} allowFontScaling={false}>
-              {billedMinutes} Min x {ratePerMinute} Rs. = {formatMoney(invoice.subtotal)}
+              {billedMinutes} Min x {rate} Rs. = {formatMoney(invoice.subtotal)}
             </Text>
             <View style={styles.invoiceRow}>
               <Text style={styles.invoiceLabel} allowFontScaling={false}>
@@ -202,7 +206,9 @@ export function ServiceCompleteScreen({navigation, route}: Props) {
             </View>
           </View>
 
-          <CustomButton title="Pay Now" onPress={onPayNow} style={styles.payButton} />
+          {isFree ? null : (
+            <CustomButton title="Pay Now" onPress={onPayNow} style={styles.payButton} />
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -403,10 +403,17 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
           const billedMinutes = startedAt
             ? Math.max(1, Math.ceil((Date.now() - startedAt) / 60000))
             : 1;
+          const freeService =
+            liveBooking?.isFree === true ||
+            serviceType === 'free' ||
+            route.params.isFree === true;
           navigation.replace('ServiceComplete', {
             bookingId: route.params.bookingId,
             minutes: billedMinutes,
-            ratePerMinute: PAID_RATE_PER_MINUTE,
+            ratePerMinute: freeService
+              ? 0
+              : liveBooking?.ratePerMinute ?? route.params.ratePerMinute ?? PAID_RATE_PER_MINUTE,
+            isFree: freeService,
           });
         },
       },
