@@ -84,6 +84,15 @@ const formatClock = (timestamp: number) =>
     hour12: false,
   });
 
+const verifiedStartFrom = (status?: string, startTime?: string, otpVerified?: boolean) => {
+  const started = (status ?? '').trim().toLowerCase() === 'started' || otpVerified === true;
+  if (!started || !startTime) {
+    return null;
+  }
+  const parsed = Date.parse(startTime);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const formatTotalTime = (startedAt: number, now: number) => {
   const totalSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -100,9 +109,10 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
   const [hasLocationPermission, setHasLocationPermission] = useState(Platform.OS !== 'android');
   const [hasArrived, setHasArrived] = useState(false);
   const [showArrivalPopup, setShowArrivalPopup] = useState(false);
-  const [phase, setPhase] = useState<ServicePhase>('enroute');
+  const loadedStart = verifiedStartFrom(route.params.status, route.params.startTime);
+  const [phase, setPhase] = useState<ServicePhase>(loadedStart != null ? 'active' : 'enroute');
   const [stops, setStops] = useState<Stop[]>(drop ? [drop] : []);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(loadedStart);
   const [now, setNow] = useState(Date.now());
 
   const isServiceView = phase !== 'enroute';
@@ -160,6 +170,17 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
           return;
         }
         setLiveBooking(booking);
+        const verifiedAt = verifiedStartFrom(
+          booking.status,
+          booking.startTime,
+          booking.isOtpVerified,
+        );
+        if (verifiedAt != null) {
+          setStartedAt(verifiedAt);
+          setNow(Date.now());
+          setShowArrivalPopup(false);
+          setPhase('active');
+        }
       } catch {
         // Keep the last booking payload already on screen.
       }
@@ -202,6 +223,20 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     setHasArrived(true);
     setShowArrivalPopup(true);
   }, [bookingStatus, phase]);
+
+  useEffect(() => {
+    const otpVerified = bookingStatus === 'started' || liveBooking?.isOtpVerified === true;
+    if (!otpVerified) {
+      return;
+    }
+    const parsedStart = liveBooking?.startTime ? Date.parse(liveBooking.startTime) : NaN;
+    if (Number.isFinite(parsedStart)) {
+      setStartedAt(parsedStart);
+    }
+    setNow(Date.now());
+    setShowArrivalPopup(false);
+    setPhase('active');
+  }, [bookingStatus, liveBooking?.isOtpVerified, liveBooking?.startTime]);
 
   useEffect(() => {
     if (phase !== 'active' || startedAt == null) {

@@ -78,6 +78,8 @@ const toConfirmedParams = (
   providerLatitude: booking.providerLat,
   providerLongitude: booking.providerLng,
   remainingMinutes: booking.remainingMinutes,
+  status: booking.status,
+  startTime: booking.startTime,
 });
 
 const formatRate = (rate: number) => {

@@ -170,6 +170,8 @@ export interface CurrentBooking {
   amount?: number;
   paymentMode?: string;
   paymentStatus?: string;
+  isOtpVerified?: boolean;
+  startTime?: string;
   createdAt?: string;
 }
 

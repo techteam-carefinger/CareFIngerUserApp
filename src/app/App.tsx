@@ -27,20 +27,111 @@ import {
 } from '../screens/TermsAndConditionsScreen';
 import {COLORS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {authService, RestoredSession} from '../services';
+import {authService, bookingService, RestoredSession} from '../services';
+import {CurrentBooking} from '../types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const LIVE_RIDE_STATUSES = new Set(['assigned', 'accepted', 'arrived', 'started']);
+const SEARCHING_STATUSES = new Set(['pending', 'searching']);
+
+type BootSession =
+  | RestoredSession
+  | {
+      route: 'BookingConfirmed';
+      params: RootStackParamList['BookingConfirmed'];
+    }
+  | {
+      route: 'SearchingCaretaker';
+      params: RootStackParamList['SearchingCaretaker'];
+    };
+
+const resumeOngoingBooking = (
+  booking: CurrentBooking,
+): BootSession | null => {
+  if (booking.lat == null || booking.lng == null) {
+    return null;
+  }
+
+  const status = booking.status.trim().toLowerCase();
+  const pickup = {
+    address: booking.address?.trim() || 'Pickup',
+    latitude: booking.lat,
+    longitude: booking.lng,
+  };
+
+  if (LIVE_RIDE_STATUSES.has(status)) {
+    return {
+      route: 'BookingConfirmed',
+      params: {
+        bookingId: booking.bookingId,
+        pickup,
+        otp: booking.otp ?? 0,
+        providerName: booking.providerName?.trim() || 'Caretaker',
+        providerPhone: booking.providerPhone ?? undefined,
+        providerImage: booking.providerImage ?? undefined,
+        providerRating: booking.providerRating,
+        serviceLabel: booking.serviceLabel,
+        serviceType: booking.serviceType,
+        ratePerMinute: booking.ratePerMinute,
+        isFree: booking.isFree,
+        vehicleNumber: booking.vehicleNumber,
+        vehicleModel: booking.vehicleModel,
+        etaMinutes: booking.etaMinutes,
+        providerLatitude: booking.providerLat,
+        providerLongitude: booking.providerLng,
+        remainingMinutes: booking.remainingMinutes,
+        status: booking.status,
+        startTime: booking.startTime,
+      },
+    };
+  }
+
+  if (SEARCHING_STATUSES.has(status)) {
+    return {
+      route: 'SearchingCaretaker',
+      params: {
+        latitude: pickup.latitude,
+        longitude: pickup.longitude,
+        address: pickup.address,
+        bookingId: booking.bookingId,
+        otp: booking.otp,
+        nearbyProviders: booking.nearbyProviders,
+        remainingMinutes: booking.remainingMinutes,
+      },
+    };
+  }
+
+  return null;
+};
+
 function App() {
-  const [session, setSession] = useState<RestoredSession | null>(null);
+  const [session, setSession] = useState<BootSession | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       const restored = await authService.restoreSession();
-      if (!cancelled) {
+      if (cancelled) {
+        return;
+      }
+
+      if (restored.route !== 'Home') {
         setSession(restored);
+        return;
+      }
+
+      try {
+        const booking = await bookingService.getCurrentBooking();
+        const resumed = booking ? resumeOngoingBooking(booking) : null;
+        if (!cancelled) {
+          setSession(resumed ?? restored);
+        }
+      } catch {
+        if (!cancelled) {
+          setSession(restored);
+        }
       }
     })();
 
@@ -88,8 +179,20 @@ function App() {
           <Stack.Screen name="RideBooking" component={RideBookingScreen} />
           <Stack.Screen name="Recharge" component={RechargeScreen} />
           <Stack.Screen name="PickupConfirm" component={PickupConfirmScreen} />
-          <Stack.Screen name="SearchingCaretaker" component={SearchingCaretakerScreen} />
-          <Stack.Screen name="BookingConfirmed" component={BookingConfirmedScreen} />
+          <Stack.Screen
+            name="SearchingCaretaker"
+            component={SearchingCaretakerScreen}
+            initialParams={
+              session.route === 'SearchingCaretaker' ? session.params : undefined
+            }
+          />
+          <Stack.Screen
+            name="BookingConfirmed"
+            component={BookingConfirmedScreen}
+            initialParams={
+              session.route === 'BookingConfirmed' ? session.params : undefined
+            }
+          />
           <Stack.Screen name="ServiceComplete" component={ServiceCompleteScreen} />
           <Stack.Screen
             name="TermsAndConditions"

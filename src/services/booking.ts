@@ -178,6 +178,14 @@ const normalizeBooking = (payload: unknown): CurrentBooking | null => {
     amount: firstNumber(record.amount, record.clientAmount),
     paymentMode: firstRawString(record.paymentMode),
     paymentStatus: firstRawString(record.paymentStatus),
+    isOtpVerified: record.isOtpVerified === true,
+    startTime: (() => {
+      const raw = record.startTime ?? record.startedAt;
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return new Date(raw).toISOString();
+      }
+      return firstRawString(raw);
+    })(),
     createdAt: firstRawString(record.createdAt),
   };
 };

@@ -108,6 +108,8 @@ export type RootStackParamList = {
     providerLatitude?: number;
     providerLongitude?: number;
     remainingMinutes?: number;
+    status?: string;
+    startTime?: string;
     nextStop?: {
       address: string;
       latitude: number;
