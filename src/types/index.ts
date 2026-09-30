@@ -121,12 +121,17 @@ export interface CreateBookingData {
   isPaid?: boolean;
   freeService?: boolean;
   serviceType?: string;
+  serviceLabel?: string;
   fareType?: string;
   chargeType?: string;
   billingType?: string;
   ratePerMinute?: number;
   pricePerMinute?: number;
   perMinuteCharge?: number;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  providerName?: string | null;
 }
 
 export interface BookingOffer {
@@ -143,6 +148,8 @@ export interface CurrentBooking {
   address?: string;
   providerId?: string | null;
   providerName?: string | null;
+  providerPhone?: string | null;
+  providerImage?: string | null;
   providerRating?: number;
   vehicleNumber?: string;
   vehicleModel?: string;
@@ -155,9 +162,15 @@ export interface CurrentBooking {
   isPaid?: boolean;
   freeService?: boolean;
   serviceType?: string;
+  serviceLabel?: string;
   fareType?: string;
   ratePerMinute?: number;
   pricePerMinute?: number;
+  duration?: number;
+  amount?: number;
+  paymentMode?: string;
+  paymentStatus?: string;
+  createdAt?: string;
 }
 
 export interface ConfirmedBookingParams {
@@ -174,12 +187,16 @@ export interface ConfirmedBookingParams {
   };
   otp: number;
   providerName: string;
-  providerRating: number;
-  vehicleNumber: string;
-  vehicleModel: string;
-  etaMinutes: number;
-  providerLatitude: number;
-  providerLongitude: number;
+  providerPhone?: string;
+  providerImage?: string;
+  providerRating?: number;
+  serviceLabel?: string;
+  serviceType?: string;
+  vehicleNumber?: string;
+  vehicleModel?: string;
+  etaMinutes?: number;
+  providerLatitude?: number;
+  providerLongitude?: number;
 }
 
 export interface CancelBookingData {
@@ -199,6 +216,9 @@ export interface BookingHistoryItem {
   price?: number;
   totalAmount?: number;
   serviceType?: string;
+  duration?: number;
+  paymentStatus?: string;
+  providerName?: string;
 }
 
 export interface BookingHistoryData {

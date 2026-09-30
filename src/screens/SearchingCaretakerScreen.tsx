@@ -20,13 +20,17 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
 import {ApiError, bookingService, getBookingOffer, PAID_RATE_PER_MINUTE, storage} from '../services';
-import {CaretakerMarker, CurrentBooking} from '../types';
+import {BookingHistoryItem, CaretakerMarker, CurrentBooking} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SearchingCaretaker'>;
 
 const POLL_INTERVAL_MS = 3000;
-const OFFER_DELAY_MS = 1200;
 const DEFAULT_RECHARGE_AMOUNT = 49;
+const ACCEPTED_STATUSES = new Set(['assigned', 'accepted', 'started']);
+
+/** Caretaker acceptance is the booking status from the API, not service type. */
+const isCaretakerAccepted = (status?: string) =>
+  ACCEPTED_STATUSES.has((status ?? '').trim().toLowerCase());
 
 const isNoActivePlanError = (message: string) =>
   message.toLowerCase().includes('no active plan');
@@ -60,13 +64,19 @@ const toConfirmedParams = (
   pickup,
   drop,
   otp: booking.otp ?? fallbackOtp,
-  providerName: booking.providerName ?? 'Caretaker',
-  providerRating: booking.providerRating ?? 4.7,
-  vehicleNumber: booking.vehicleNumber ?? 'CF-SERVICE',
-  vehicleModel: booking.vehicleModel ?? 'Caretaker Service',
-  etaMinutes: booking.etaMinutes ?? 6,
-  providerLatitude: booking.providerLat ?? pickup.latitude + 0.004,
-  providerLongitude: booking.providerLng ?? pickup.longitude + 0.004,
+  providerName: booking.providerName?.trim() || 'Caretaker',
+  providerPhone: booking.providerPhone ?? undefined,
+  providerImage: booking.providerImage ?? undefined,
+  providerRating: booking.providerRating,
+  serviceLabel: booking.serviceLabel,
+  serviceType: booking.serviceType,
+  ratePerMinute: booking.ratePerMinute,
+  isFree: booking.isFree,
+  vehicleNumber: booking.vehicleNumber,
+  vehicleModel: booking.vehicleModel,
+  etaMinutes: booking.etaMinutes,
+  providerLatitude: booking.providerLat,
+  providerLongitude: booking.providerLng,
   remainingMinutes: booking.remainingMinutes,
 });
 
@@ -85,7 +95,11 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
   const [userName, setUserName] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [paidOffer, setPaidOffer] = useState<{ratePerMinute: number} | null>(null);
+  const [rideOffer, setRideOffer] = useState<{
+    isFree: boolean;
+    ratePerMinute: number;
+    providerName: string;
+  } | null>(null);
   const isCancellingRef = useRef(false);
   const isRetryingRef = useRef(false);
   const hasAcceptedRef = useRef(false);
@@ -219,39 +233,24 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     );
   }, [address, drop, latitude, longitude, navigation]);
 
-  const applyOffer = useCallback(
-    (offer: {isFree: boolean; ratePerMinute: number}) => {
-      if (hasAcceptedRef.current) {
-        return;
-      }
-      if (offer.isFree) {
-        goToConfirmed();
-        return;
-      }
-      setPaidOffer({
-        ratePerMinute: offer.ratePerMinute || PAID_RATE_PER_MINUTE,
-      });
-    },
-    [goToConfirmed],
-  );
-
-  useEffect(() => {
-    if (!bookingId) {
+  const showAcceptanceOffer = useCallback((booking: CurrentBooking) => {
+    if (hasAcceptedRef.current || offerHandledRef.current) {
       return;
     }
-
-    const timer = setTimeout(() => {
-      if (offerHandledRef.current || hasAcceptedRef.current) {
-        return;
-      }
-      offerHandledRef.current = true;
-      applyOffer(
-        route.params.offer ?? getBookingOffer(pendingBookingRef.current),
-      );
-    }, OFFER_DELAY_MS);
-
-    return () => clearTimeout(timer);
-  }, [applyOffer, bookingId, route.params.offer]);
+    if (!isCaretakerAccepted(booking.status)) {
+      return;
+    }
+    const offer = getBookingOffer(booking);
+    if (!offer) {
+      return;
+    }
+    offerHandledRef.current = true;
+    setRideOffer({
+      isFree: offer.isFree,
+      ratePerMinute: offer.ratePerMinute,
+      providerName: booking.providerName?.trim() || 'A caretaker',
+    });
+  }, []);
 
   useEffect(() => {
     if (!bookingId) {
@@ -261,20 +260,77 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     let cancelled = false;
 
     const pollBooking = async () => {
+      if (cancelled || hasAcceptedRef.current || offerHandledRef.current) {
+        return;
+      }
+
+      let current: CurrentBooking | null = null;
       try {
-        const booking = await bookingService.getCurrentBooking();
-        if (cancelled || !booking) {
-          return;
+        current = await bookingService.getCurrentBooking();
+      } catch {
+        current = null;
+      }
+
+      let historyMatch: BookingHistoryItem | undefined;
+      const currentIsThisBooking =
+        current != null &&
+        (!bookingIdRef.current || current.bookingId === bookingIdRef.current);
+
+      // History is only a fallback when the live booking is missing.
+      // A pending ride already has serviceType while it is still being offered.
+      if (!currentIsThisBooking) {
+        try {
+          const history = await bookingService.getBookingHistory();
+          const activeId = bookingIdRef.current;
+          historyMatch = history.bookings.find(item => {
+            const id = item.bookingId || item._id;
+            return Boolean(id) && id === activeId && isCaretakerAccepted(item.status);
+          });
+        } catch {
+          historyMatch = undefined;
         }
-        if (booking.bookingId === bookingIdRef.current) {
-          pendingBookingRef.current = booking;
-          if (booking.otp) {
-            bookingOtpRef.current = booking.otp;
+      }
+
+      if (cancelled || hasAcceptedRef.current || offerHandledRef.current) {
+        return;
+      }
+
+      const status = (currentIsThisBooking ? current?.status : historyMatch?.status) || '';
+      const serviceType = currentIsThisBooking
+        ? current?.serviceType
+        : historyMatch?.serviceType;
+      const providerName =
+        (currentIsThisBooking ? current?.providerName : historyMatch?.providerName) || null;
+
+      if (!isCaretakerAccepted(status)) {
+        if (currentIsThisBooking && current) {
+          pendingBookingRef.current = current;
+          bookingIdRef.current = current.bookingId;
+          if (current.otp) {
+            bookingOtpRef.current = current.otp;
           }
         }
-      } catch {
-        // Keep polling while the search screen is visible.
+        return;
       }
+
+      const booking: CurrentBooking = {
+        ...(currentIsThisBooking && current ? current : {}),
+        bookingId:
+          (currentIsThisBooking ? current?.bookingId : undefined) ||
+          historyMatch?.bookingId ||
+          bookingIdRef.current,
+        status,
+        serviceType,
+        providerName,
+        isFree: currentIsThisBooking ? current?.isFree === true : undefined,
+        isPaid: currentIsThisBooking ? current?.isPaid === true : undefined,
+      };
+      pendingBookingRef.current = booking;
+      bookingIdRef.current = booking.bookingId;
+      if (booking.otp) {
+        bookingOtpRef.current = booking.otp;
+      }
+      showAcceptanceOffer(booking);
     };
 
     void pollBooking();
@@ -286,7 +342,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bookingId]);
+  }, [bookingId, showAcceptanceOffer]);
 
   const resolveBookingIdForCancel = useCallback(async () => {
     if (bookingIdRef.current) {
@@ -351,8 +407,8 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     ]);
   }, [cancelSearch]);
 
-  const confirmPaidOffer = useCallback(() => {
-    setPaidOffer(null);
+  const acceptRide = useCallback(() => {
+    setRideOffer(null);
     goToConfirmed();
   }, [goToConfirmed]);
 
@@ -363,7 +419,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
 
     isRetryingRef.current = true;
     setIsRetrying(true);
-    setPaidOffer(null);
+    setRideOffer(null);
 
     try {
       const activeBookingId = await resolveBookingIdForCancel();
@@ -374,7 +430,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
       }
 
       hasAcceptedRef.current = false;
-      offerHandledRef.current = true;
+      offerHandledRef.current = false;
 
       const booking = await bookingService.createBooking({
         lat: latitude,
@@ -393,9 +449,6 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
         remainingMinutes: booking.remainingMinutes,
       };
       setNearbyProviders(Math.max(booking.nearbyProviders ?? 0, 5));
-
-      await new Promise(resolve => setTimeout(resolve, OFFER_DELAY_MS));
-      applyOffer(getBookingOffer(booking));
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -416,7 +469,6 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
     }
   }, [
     address,
-    applyOffer,
     latitude,
     longitude,
     navigation,
@@ -445,7 +497,7 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
             <Ionicons name="arrow-back" size={22} color="#111827" />
           </Pressable>
           <Text style={styles.headerTitle} allowFontScaling={false}>
-            Searching for Caretaker
+            {rideOffer ? 'Caretaker accepted' : 'Searching for Caretaker'}
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -455,12 +507,20 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
             <Ionicons name="medkit" size={28} color={COLORS.white} />
           </View>
           <Text style={styles.statusTitle} allowFontScaling={false}>
-            {isRetrying ? 'Trying for a free ride...' : 'Searching caretaker...'}
+            {rideOffer
+              ? `${rideOffer.providerName} accepted`
+              : isRetrying
+                ? 'Trying for a free ride...'
+                : 'Searching caretaker...'}
           </Text>
           <Text style={styles.statusSubtitle} allowFontScaling={false}>
-            {isRetrying
-              ? 'Checking if this one is free...'
-              : 'This may take a few seconds...'}
+            {rideOffer
+              ? rideOffer.isFree
+                ? 'This ride is free. Confirm to continue.'
+                : 'Confirm this caretaker, or retry for a free ride.'
+              : isRetrying
+                ? 'Checking if this one is free...'
+                : 'This may take a few seconds...'}
           </Text>
         </View>
 
@@ -532,41 +592,49 @@ export function SearchingCaretakerScreen({navigation, route}: Props) {
       </View>
 
       <Modal
-        visible={paidOffer != null}
+        visible={rideOffer != null}
         transparent
         animationType="fade"
-        onRequestClose={confirmPaidOffer}>
+        onRequestClose={acceptRide}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalIconWrap}>
-              <Ionicons name="pricetag" size={28} color={COLORS.white} />
+              <Ionicons
+                name={rideOffer?.isFree ? 'gift' : 'pricetag'}
+                size={28}
+                color={COLORS.white}
+              />
             </View>
             <Text style={styles.modalTitle} allowFontScaling={false}>
-              CareFinger just @ ₹{formatRate(paidOffer?.ratePerMinute ?? PAID_RATE_PER_MINUTE)}/min
+              {rideOffer?.providerName ?? 'A caretaker'} accepted
             </Text>
             <Text style={styles.modalMessage} allowFontScaling={false}>
-              A caretaker is ready. Confirm to continue, or retry for a free ride.
+              {rideOffer?.isFree
+                ? 'This ride is free. Accept to continue with this caretaker.'
+                : `This ride is paid at ₹${formatRate(rideOffer?.ratePerMinute ?? PAID_RATE_PER_MINUTE)}/min. Accept to continue, or retry for a free caretaker.`}
             </Text>
             <Pressable
               style={styles.modalConfirmButton}
-              onPress={confirmPaidOffer}
+              onPress={acceptRide}
               disabled={isRetrying}>
               <Text style={styles.modalConfirmText} allowFontScaling={false}>
-                Confirm
+                {rideOffer?.isFree ? 'Accept free ride' : 'Accept paid ride'}
               </Text>
             </Pressable>
-            <Pressable
-              style={styles.modalRetryButton}
-              onPress={() => void retryForFree()}
-              disabled={isRetrying}>
-              {isRetrying ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <Text style={styles.modalRetryText} allowFontScaling={false}>
-                  Retry for free
-                </Text>
-              )}
-            </Pressable>
+            {rideOffer?.isFree ? null : (
+              <Pressable
+                style={styles.modalRetryButton}
+                onPress={() => void retryForFree()}
+                disabled={isRetrying}>
+                {isRetrying ? (
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : (
+                  <Text style={styles.modalRetryText} allowFontScaling={false}>
+                    Retry for free
+                  </Text>
+                )}
+              </Pressable>
+            )}
           </View>
         </View>
       </Modal>

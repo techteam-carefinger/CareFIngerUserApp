@@ -17,7 +17,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {ApiError, bookingService, getBookingOffer, storage} from '../services';
+import {ApiError, bookingService, storage} from '../services';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PickupConfirm'>;
 
@@ -202,7 +202,6 @@ export function PickupConfirmScreen({navigation, route}: Props) {
         planTitle: route.params.serviceTitle,
         planAmount: route.params.planAmount,
         remainingMinutes: booking.remainingMinutes,
-        offer: getBookingOffer(booking),
         drop,
       });
     } catch (error) {

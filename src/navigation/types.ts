@@ -95,12 +95,18 @@ export type RootStackParamList = {
     };
     otp: number;
     providerName: string;
-    providerRating: number;
-    vehicleNumber: string;
-    vehicleModel: string;
-    etaMinutes: number;
-    providerLatitude: number;
-    providerLongitude: number;
+    providerPhone?: string;
+    providerImage?: string;
+    providerRating?: number;
+    serviceLabel?: string;
+    serviceType?: string;
+    ratePerMinute?: number;
+    isFree?: boolean;
+    vehicleNumber?: string;
+    vehicleModel?: string;
+    etaMinutes?: number;
+    providerLatitude?: number;
+    providerLongitude?: number;
     remainingMinutes?: number;
     nextStop?: {
       address: string;

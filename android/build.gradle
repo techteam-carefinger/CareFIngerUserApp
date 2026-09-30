@@ -6,6 +6,9 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
+        // Lets library Gradle scripts resolve React Native without spawning `node`.
+        // Android Studio's Gradle daemon uses a minimal PATH that does not include Node.
+        REACT_NATIVE_NODE_MODULES_DIR = file("${rootDir}/../node_modules/react-native")
     }
     repositories {
         google()

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,6 +15,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
+import {ApiError, bookingService, storage} from '../services';
 import {CaretakerMarker} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RideBooking'>;
@@ -24,6 +26,10 @@ const GOOGLE_MAPS_API_KEY: string = 'AIzaSyBE3GNStuB23c1ZT8j9C2tfFuFFue4NY4U';
 const THEME = '#0F8A9D';
 const PICKUP_COLOR = '#1E9E5A';
 const DROP_COLOR = '#D9642A';
+const DEFAULT_RECHARGE_AMOUNT = 49;
+
+const isNoActivePlanError = (message: string) =>
+  message.toLowerCase().includes('no active plan');
 
 const decodePolyline = (encoded: string): LatLng[] => {
   const points: LatLng[] = [];
@@ -109,6 +115,7 @@ export function RideBookingScreen({navigation, route}: Props) {
 
   const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
   const [isRouteLoading, setIsRouteLoading] = useState(true);
+  const [isBooking, setIsBooking] = useState(false);
 
   const caretakerBikes = useMemo(
     () => generateCaretakerBikes(pickup),
@@ -167,13 +174,65 @@ export function RideBookingScreen({navigation, route}: Props) {
     return () => clearTimeout(timer);
   }, [pickup, drop, caretakerBikes, routeCoords.length]);
 
-  const handleBookPress = () => {
-    navigation.navigate('PickupConfirm', {
-      pickup,
-      drop,
-      serviceTitle: 'Caretaker',
-      planAmount: 0,
-    });
+  const handleBookPress = async () => {
+    if (isBooking) {
+      return;
+    }
+
+    const token = await storage.getToken();
+    if (!token) {
+      Alert.alert('Login required', 'Please log in to book a caretaker.', [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Login', onPress: () => navigation.navigate('Login')},
+      ]);
+      return;
+    }
+
+    setIsBooking(true);
+    try {
+      void storage.setLocation({
+        latitude: pickup.latitude,
+        longitude: pickup.longitude,
+        address: pickup.address,
+        capturedAt: Date.now(),
+      });
+
+      const booking = await bookingService.createBooking({
+        lat: pickup.latitude,
+        lng: pickup.longitude,
+        address: pickup.address,
+      });
+
+      navigation.replace('SearchingCaretaker', {
+        latitude: pickup.latitude,
+        longitude: pickup.longitude,
+        address: pickup.address,
+        bookingId: booking.bookingId,
+        nearbyProviders: booking.nearbyProviders ?? 5,
+        otp: booking.otp,
+        planTitle: 'Caretaker',
+        planAmount: 0,
+        remainingMinutes: booking.remainingMinutes,
+        drop,
+      });
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Could not create booking. Please try again.';
+
+      if (isNoActivePlanError(message)) {
+        navigation.navigate('Recharge', {
+          planTitle: 'Caretaker',
+          amount: DEFAULT_RECHARGE_AMOUNT,
+        });
+        return;
+      }
+
+      Alert.alert('Booking failed', message);
+    } finally {
+      setIsBooking(false);
+    }
   };
 
   return (
@@ -264,10 +323,19 @@ export function RideBookingScreen({navigation, route}: Props) {
             You get ₹20 off & 20 coins cashback!
           </Text>
 
-          <Pressable style={styles.bookButton} onPress={handleBookPress}>
-            <Text style={styles.bookButtonText} allowFontScaling={false}>
-              Book caretaker
-            </Text>
+          <Pressable
+            style={[styles.bookButton, isBooking && styles.bookButtonDisabled]}
+            onPress={() => {
+              void handleBookPress();
+            }}
+            disabled={isBooking}>
+            {isBooking ? (
+              <ActivityIndicator color={COLORS.white} />
+            ) : (
+              <Text style={styles.bookButtonText} allowFontScaling={false}>
+                Book caretaker
+              </Text>
+            )}
           </Pressable>
         </View>
       </View>
@@ -414,6 +482,9 @@ const styles = StyleSheet.create({
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bookButtonDisabled: {
+    opacity: 0.7,
   },
   bookButtonText: {
     fontFamily: FONTS.bold,

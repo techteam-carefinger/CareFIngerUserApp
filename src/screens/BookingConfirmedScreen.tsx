@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
+  Image,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -18,7 +19,8 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {PAID_RATE_PER_MINUTE, storage} from '../services';
+import {PAID_RATE_PER_MINUTE, bookingService, storage} from '../services';
+import {CurrentBooking} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BookingConfirmed'>;
 
@@ -90,21 +92,10 @@ const formatTotalTime = (startedAt: number, now: number) => {
 };
 
 export function BookingConfirmedScreen({navigation, route}: Props) {
-  const {
-    pickup,
-    drop,
-    otp,
-    providerName,
-    providerRating,
-    vehicleNumber,
-    vehicleModel,
-    etaMinutes,
-    providerLatitude,
-    providerLongitude,
-    remainingMinutes,
-  } = route.params;
+  const {drop, bookingId} = route.params;
   const {height: windowHeight} = useWindowDimensions();
   const mapRef = useRef<MapView | null>(null);
+  const [liveBooking, setLiveBooking] = useState<CurrentBooking | null>(null);
   const [userCoords, setUserCoords] = useState<LatLng | null>(null);
   const [hasLocationPermission, setHasLocationPermission] = useState(Platform.OS !== 'android');
   const [hasArrived, setHasArrived] = useState(false);
@@ -118,7 +109,72 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
   const mapHeight = Math.round(windowHeight * (isServiceView ? 0.55 : 0.42));
   const currentDestination = stops[stops.length - 1] ?? drop;
 
+  const pickup = useMemo(() => {
+    const address = liveBooking?.address?.trim() || route.params.pickup.address;
+    return {
+      address,
+      latitude: liveBooking?.lat ?? route.params.pickup.latitude,
+      longitude: liveBooking?.lng ?? route.params.pickup.longitude,
+    };
+  }, [liveBooking, route.params.pickup]);
+
+  const providerName =
+    liveBooking?.providerName?.trim() || route.params.providerName || 'Caretaker';
+  const providerPhone = liveBooking?.providerPhone || route.params.providerPhone;
+  const providerImage = liveBooking?.providerImage || route.params.providerImage;
+  const providerRating = liveBooking?.providerRating ?? route.params.providerRating;
+  const serviceLabel = liveBooking?.serviceLabel || route.params.serviceLabel;
+  const serviceType = (liveBooking?.serviceType || route.params.serviceType || '')
+    .trim()
+    .toLowerCase();
+  const vehicleNumber = liveBooking?.vehicleNumber || route.params.vehicleNumber;
+  const vehicleModel = liveBooking?.vehicleModel || route.params.vehicleModel;
+  const etaMinutes = liveBooking?.etaMinutes ?? route.params.etaMinutes;
+  const providerLatitude = liveBooking?.providerLat ?? route.params.providerLatitude;
+  const providerLongitude = liveBooking?.providerLng ?? route.params.providerLongitude;
+  const remainingMinutes = liveBooking?.remainingMinutes ?? route.params.remainingMinutes;
+  const otp = liveBooking?.otp ?? route.params.otp;
+  const serviceHeadline =
+    serviceLabel ||
+    (serviceType === 'free'
+      ? 'FREE SERVICE'
+      : serviceType === 'paid'
+        ? 'PAID SERVICE'
+        : '') ||
+    vehicleNumber ||
+    'Caretaker';
+  const serviceDetail = vehicleModel || providerPhone;
+
   const pinDigits = useMemo(() => formatPinDigits(otp), [otp]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBooking = async () => {
+      try {
+        const booking = await bookingService.getCurrentBooking();
+        if (cancelled || !booking) {
+          return;
+        }
+        if (bookingId && booking.bookingId !== bookingId) {
+          return;
+        }
+        setLiveBooking(booking);
+      } catch {
+        // Keep the last booking payload already on screen.
+      }
+    };
+
+    void loadBooking();
+    const timer = setInterval(() => {
+      void loadBooking();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [bookingId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -221,6 +277,12 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     if (isAwayFromPickup && userCoords) {
       return [userCoords, pickup];
     }
+    if (
+      typeof providerLatitude !== 'number' ||
+      typeof providerLongitude !== 'number'
+    ) {
+      return userCoords ? [userCoords, pickup] : [pickup];
+    }
     return [
       {latitude: providerLatitude, longitude: providerLongitude},
       pickup,
@@ -243,7 +305,10 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
       }
       return regionFromCoords(points);
     }
-    const points: LatLng[] = [pickup, {latitude: providerLatitude, longitude: providerLongitude}];
+    const points: LatLng[] = [pickup];
+    if (typeof providerLatitude === 'number' && typeof providerLongitude === 'number') {
+      points.push({latitude: providerLatitude, longitude: providerLongitude});
+    }
     if (userCoords) {
       points.push(userCoords);
     }
@@ -359,7 +424,9 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
                     </View>
                   </Marker>
                 ))
-              : isAwayFromPickup
+              : isAwayFromPickup ||
+                typeof providerLatitude !== 'number' ||
+                typeof providerLongitude !== 'number'
                 ? null
                 : (
                     <Marker
@@ -451,9 +518,13 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
                 <>
                   Caretaker has <Text style={styles.etaHighlight}>arrived</Text>
                 </>
-              ) : (
+              ) : etaMinutes != null ? (
                 <>
                   Pickup in <Text style={styles.etaHighlight}>{etaMinutes} mins</Text>
+                </>
+              ) : (
+                <>
+                  Caretaker is <Text style={styles.etaHighlight}>on the way</Text>
                 </>
               )}
             </Text>
@@ -474,11 +545,13 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
             <View style={styles.caretakerCard}>
               <View style={styles.caretakerInfo}>
                 <Text style={styles.vehicleNumber} allowFontScaling={false}>
-                  {vehicleNumber}
+                  {serviceHeadline}
                 </Text>
-                <Text style={styles.vehicleModel} allowFontScaling={false}>
-                  {vehicleModel}
-                </Text>
+                {serviceDetail ? (
+                  <Text style={styles.vehicleModel} allowFontScaling={false}>
+                    {serviceDetail}
+                  </Text>
+                ) : null}
                 <Text style={styles.providerName} allowFontScaling={false}>
                   {providerName}
                 </Text>
@@ -486,13 +559,19 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
 
               <View style={styles.caretakerRight}>
                 <View style={styles.avatar}>
-                  <Ionicons name="person" size={28} color={COLORS.primary} />
+                  {providerImage ? (
+                    <Image source={{uri: providerImage}} style={styles.avatarImage} />
+                  ) : (
+                    <Ionicons name="person" size={28} color={COLORS.primary} />
+                  )}
                 </View>
-                <View style={styles.ratingBadge}>
-                  <Text style={styles.ratingText} allowFontScaling={false}>
-                    {providerRating.toFixed(1)} ★
-                  </Text>
-                </View>
+                {providerRating != null ? (
+                  <View style={styles.ratingBadge}>
+                    <Text style={styles.ratingText} allowFontScaling={false}>
+                      {providerRating.toFixed(1)} ★
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
 
@@ -874,6 +953,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 56,
+    height: 56,
   },
   ratingBadge: {
     marginTop: 6,

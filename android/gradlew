@@ -91,6 +91,21 @@ APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exi
 # Use the maximum available, or set MAX_FD != -1 to use that value.
 MAX_FD=maximum
 
+# Android Studio starts Gradle with PATH=/usr/bin:/bin:/usr/sbin:/sbin, so Homebrew Node is invisible.
+if ! command -v node >/dev/null 2>&1; then
+    for node_bin in \
+        /opt/homebrew/opt/node@22/bin/node \
+        /opt/homebrew/bin/node \
+        /usr/local/bin/node
+    do
+        if [ -x "$node_bin" ]; then
+            PATH=$(dirname "$node_bin"):$PATH
+            export PATH
+            break
+        fi
+    done
+fi
+
 warn () {
     echo "$*"
 } >&2

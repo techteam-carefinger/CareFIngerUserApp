@@ -40,10 +40,13 @@ async function request<T>(
 
   let response: Response;
   try {
+    // Fastify rejects `Content-Type: application/json` with an empty body
+    // (`FST_ERR_CTP_EMPTY_JSON_BODY`). Status polls such as `/current-booking`
+    // never include fields, so always send a JSON object.
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: JSON.stringify(body ?? {}),
     });
   } catch (networkError) {
     throw new ApiError(
