@@ -32,7 +32,7 @@ const PICKUP_COLOR = '#1E9E5A';
 const DROP_COLOR = '#D9642A';
 const CARETAKER_COLOR = '#2563EB';
 const PICKUP_NEARBY_THRESHOLD_M = 80;
-const CARETAKER_ARRIVAL_DELAY_MS = 60 * 1000;
+const CITY_SPEED_KMH = 25;
 
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
@@ -168,7 +168,7 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     void loadBooking();
     const timer = setInterval(() => {
       void loadBooking();
-    }, 4000);
+    }, 3000);
 
     return () => {
       cancelled = true;
@@ -176,14 +176,32 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     };
   }, [bookingId]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setHasArrived(true);
-      setShowArrivalPopup(true);
-    }, CARETAKER_ARRIVAL_DELAY_MS);
+  const caretakerPoint = useMemo(() => {
+    if (typeof providerLatitude !== 'number' || typeof providerLongitude !== 'number') {
+      return null;
+    }
+    return {latitude: providerLatitude, longitude: providerLongitude};
+  }, [providerLatitude, providerLongitude]);
 
-    return () => clearTimeout(timer);
-  }, []);
+  const liveEtaMinutes = useMemo(() => {
+    if (!caretakerPoint) {
+      return etaMinutes ?? null;
+    }
+    const meters = distanceInMeters(caretakerPoint, pickup);
+    return Math.max(1, Math.round((meters / 1000 / CITY_SPEED_KMH) * 60));
+  }, [caretakerPoint, etaMinutes, pickup]);
+
+  const bookingStatus = (liveBooking?.status ?? '').trim().toLowerCase();
+  const arrivalShownRef = useRef(false);
+
+  useEffect(() => {
+    if (phase !== 'enroute' || bookingStatus !== 'arrived' || arrivalShownRef.current) {
+      return;
+    }
+    arrivalShownRef.current = true;
+    setHasArrived(true);
+    setShowArrivalPopup(true);
+  }, [bookingStatus, phase]);
 
   useEffect(() => {
     if (phase !== 'active' || startedAt == null) {
@@ -274,25 +292,17 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
     if (isServiceView) {
       return [pickup, ...stops];
     }
-    if (isAwayFromPickup && userCoords) {
+    if (caretakerPoint) {
+      return [caretakerPoint, pickup];
+    }
+    if (userCoords) {
       return [userCoords, pickup];
     }
-    if (
-      typeof providerLatitude !== 'number' ||
-      typeof providerLongitude !== 'number'
-    ) {
-      return userCoords ? [userCoords, pickup] : [pickup];
-    }
-    return [
-      {latitude: providerLatitude, longitude: providerLongitude},
-      pickup,
-    ];
+    return [pickup];
   }, [
-    isAwayFromPickup,
+    caretakerPoint,
     isServiceView,
     pickup,
-    providerLatitude,
-    providerLongitude,
     stops,
     userCoords,
   ]);
@@ -401,9 +411,8 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
             {routeCoords.length > 1 ? (
               <Polyline
                 coordinates={routeCoords}
-                strokeColor="#111827"
-                strokeWidth={3}
-                lineDashPattern={[8, 8]}
+                strokeColor={caretakerPoint && !isServiceView ? CARETAKER_COLOR : '#111827'}
+                strokeWidth={4}
               />
             ) : null}
 
@@ -424,19 +433,16 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
                     </View>
                   </Marker>
                 ))
-              : isAwayFromPickup ||
-                typeof providerLatitude !== 'number' ||
-                typeof providerLongitude !== 'number'
-                ? null
-                : (
+              : caretakerPoint ? (
                     <Marker
-                      coordinate={{latitude: providerLatitude, longitude: providerLongitude}}
-                      anchor={{x: 0.5, y: 0.5}}>
+                      coordinate={caretakerPoint}
+                      anchor={{x: 0.5, y: 0.5}}
+                      tracksViewChanges={false}>
                       <View style={styles.caretakerMarker}>
                         <Ionicons name="navigate" size={18} color={COLORS.white} />
                       </View>
                     </Marker>
-                  )}
+                  ) : null}
           </MapView>
 
           <View style={styles.pickupLabel}>
@@ -518,9 +524,9 @@ export function BookingConfirmedScreen({navigation, route}: Props) {
                 <>
                   Caretaker has <Text style={styles.etaHighlight}>arrived</Text>
                 </>
-              ) : etaMinutes != null ? (
+              ) : liveEtaMinutes != null && liveEtaMinutes > 0 ? (
                 <>
-                  Pickup in <Text style={styles.etaHighlight}>{etaMinutes} mins</Text>
+                  Pickup in <Text style={styles.etaHighlight}>{liveEtaMinutes} mins</Text>
                 </>
               ) : (
                 <>
