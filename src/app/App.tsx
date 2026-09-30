@@ -12,6 +12,7 @@ import {RideBookingScreen} from '../screens/RideBookingScreen';
 import {RechargeScreen} from '../screens/RechargeScreen';
 import {PickupConfirmScreen} from '../screens/PickupConfirmScreen';
 import {BookingConfirmedScreen} from '../screens/BookingConfirmedScreen';
+import {BookingInvoiceScreen} from '../screens/BookingInvoiceScreen';
 import {ServiceCompleteScreen} from '../screens/ServiceCompleteScreen';
 import {SearchingCaretakerScreen} from '../screens/SearchingCaretakerScreen';
 import {OtpVerificationScreen} from '../screens/OtpVerificationScreen';
@@ -173,6 +174,7 @@ function App() {
           <Stack.Screen name="Profile" component={ProfileScreen} />
           <Stack.Screen name="ProfileDetails" component={ProfileDetailsScreen} />
           <Stack.Screen name="MyCareServices" component={MyCareServicesScreen} />
+          <Stack.Screen name="BookingInvoice" component={BookingInvoiceScreen} />
           <Stack.Screen name="EditProfileField" component={EditProfileFieldScreen} />
           <Stack.Screen name="LocationSearch" component={LocationSearchScreen} />
           <Stack.Screen name="MapPicker" component={MapPickerScreen} />

@@ -14,7 +14,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 
 import {COLORS, FONTS} from '../constants';
 import {RootStackParamList} from '../navigation/types';
-import {ApiError, bookingService} from '../services';
+import {ApiError, bookingService, PAID_RATE_PER_MINUTE} from '../services';
 import {BookingHistoryItem} from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyCareServices'>;
@@ -105,7 +105,22 @@ export function MyCareServicesScreen({navigation}: Props) {
     const status = formatStatus(item.status);
 
     return (
-      <Pressable style={styles.historyRow}>
+      <Pressable
+        style={styles.historyRow}
+        onPress={() => {
+          const isFree = (item.serviceType ?? '').trim().toLowerCase() === 'free';
+          navigation.navigate('BookingInvoice', {
+            bookingId: getBookingId(item),
+            serviceDate: getBookingDate(item),
+            minutes: item.duration ?? 0,
+            ratePerMinute: isFree
+              ? 0
+              : item.ratePerMinute && item.ratePerMinute > 0
+                ? item.ratePerMinute
+                : PAID_RATE_PER_MINUTE,
+            serviceType: item.serviceType,
+          });
+        }}>
         <View style={styles.historyIconWrap}>
           <Ionicons name="medkit-outline" size={22} color="#111827" />
         </View>

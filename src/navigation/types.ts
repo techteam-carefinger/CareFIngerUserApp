@@ -12,6 +12,13 @@ export type RootStackParamList = {
   Profile: undefined;
   ProfileDetails: undefined;
   MyCareServices: undefined;
+  BookingInvoice: {
+    bookingId: string;
+    serviceDate?: string;
+    minutes: number;
+    ratePerMinute: number;
+    serviceType?: string;
+  };
   EditProfileField: {
     field: 'name' | 'email' | 'emergency' | 'dateOfBirth';
     initialValue?: string;

@@ -219,6 +219,7 @@ export interface BookingHistoryItem {
   totalAmount?: number;
   serviceType?: string;
   duration?: number;
+  ratePerMinute?: number;
   paymentStatus?: string;
   providerName?: string;
 }

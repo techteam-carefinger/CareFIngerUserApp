@@ -236,6 +236,7 @@ const normalizeHistoryItem = (item: unknown): BookingHistoryItem => {
     totalAmount: firstNumber(record.totalAmount, record.clientAmount, record.amount),
     serviceType: firstRawString(record.serviceType),
     duration: firstNumber(record.duration),
+    ratePerMinute: firstNumber(record.ratePerMinute, record.pricePerMinute),
     paymentStatus: firstRawString(record.paymentStatus),
     providerName: firstRawString(record.providerName, provider.name),
   };
